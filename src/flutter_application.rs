@@ -6,8 +6,12 @@ use std::{
         unix::prelude::OsStrExt,
     },
     path::Path,
-    ptr::{null, null_mut},
+    ptr::null_mut,
 };
+
+use ash::vk::Handle;
+use wgpu::{Device, Instance, Queue};
+use wgpu_hal::api::Vulkan;
 
 use crate::{
     flutter_bindings::{
@@ -24,7 +28,13 @@ use crate::{
 pub struct FlutterApplication {}
 
 impl FlutterApplication {
-    pub fn new(asset_bundle_path: &Path, flutter_flags: Vec<String>) -> Self {
+    pub fn new(
+        asset_bundle_path: &Path,
+        flutter_flags: Vec<String>,
+        instance: &Instance,
+        device: &Device,
+        queue: &Queue,
+    ) -> Self {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
         }
@@ -32,16 +42,42 @@ impl FlutterApplication {
         if icudtl_dat.exists() {
             panic!("icudtl.dat not found in the current directory.");
         }
+        let (raw_instance, version) = unsafe {
+            instance.as_hal::<Vulkan, _, _>(|instance| {
+                instance.map(|instance| {
+                    let raw_instance = instance.shared_instance().raw_instance();
+                    let raw_handle = raw_instance.handle().as_raw();
+
+                    (raw_handle, instance.shared_instance().driver_api_version())
+                })
+            })
+        }
+        .expect("wgpu didn't choose Vulkan as rendering backend");
+
+        let (raw_device, raw_physical_device) = unsafe {
+            device.as_hal::<Vulkan, _, _>(|device| {
+                device.map(|device| {
+                    (
+                        device.raw_device().handle().as_raw(),
+                        device.raw_physical_device().as_raw(),
+                    )
+                })
+            })
+        }
+        .unwrap();
+
+        // let raw_queue =
+        //     unsafe { queue.as_hal::<Vulkan, _, _>(|queue| queue.map(|queue| queue.raw)) };
 
         let config = FlutterRendererConfig {
             type_: FlutterRendererType_kVulkan,
             __bindgen_anon_1: FlutterRendererConfig__bindgen_ty_1 {
                 vulkan: FlutterVulkanRendererConfig {
                     struct_size: size_of::<FlutterVulkanRendererConfig>() as _,
-                    version: todo!(),
-                    instance: todo!(),
-                    physical_device: todo!(),
-                    device: todo!(),
+                    version,
+                    instance: raw_instance as _,
+                    physical_device: raw_physical_device as _,
+                    device: raw_device as _,
                     queue_family_index: todo!(),
                     queue: todo!(),
                     enabled_instance_extension_count: todo!(),
