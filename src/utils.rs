@@ -6,8 +6,11 @@ pub fn flutter_asset_bundle_is_valid(bundle_path: &Path) -> bool {
         return false;
     }
 
-    if !bundle_path.with_file_name("kernel_blob.bin").exists() {
-        log::error!("Kernel blob does not exist.");
+    let mut kernel_path = bundle_path.to_path_buf();
+    kernel_path.push("kernel_blob.bin");
+
+    if !kernel_path.exists() {
+        log::error!("Kernel blob {} does not exist.", kernel_path.display());
         return false;
     }
     return true;
