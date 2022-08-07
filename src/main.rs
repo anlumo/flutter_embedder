@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use std::path::PathBuf;
 
 use clap::Parser;
@@ -10,11 +11,13 @@ use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
+    window::{Window, WindowBuilder},
 };
 
 mod flutter_application;
 use flutter_application::FlutterApplication;
+mod compositor;
+use compositor::Compositor;
 
 mod flutter_bindings;
 mod utils;
@@ -86,13 +89,13 @@ async fn main() {
     let flutter = FlutterApplication::new(
         &args.asset_bundle_path,
         args.flutter_flags,
-        &instance,
-        &device,
-        &queue,
+        instance,
+        device,
+        queue,
     );
 
     event_loop.run(move |event, _, control_flow| {
-        let _ = (&instance, &adapter);
+        let _ = &adapter;
 
         *control_flow = ControlFlow::Wait;
         match event {
@@ -101,8 +104,9 @@ async fn main() {
                     .get_current_texture()
                     .expect("Failed to acquire next swap chain texture");
                 let view = frame.texture.create_view(&TextureViewDescriptor::default());
-                let mut encoder =
-                    device.create_command_encoder(&CommandEncoderDescriptor { label: None });
+                let mut encoder = flutter
+                    .device()
+                    .create_command_encoder(&CommandEncoderDescriptor { label: None });
                 {
                     encoder.begin_render_pass(&RenderPassDescriptor {
                         label: None,
@@ -122,7 +126,7 @@ async fn main() {
                         depth_stencil_attachment: None,
                     });
                 }
-                queue.submit(Some(encoder.finish()));
+                flutter.queue().submit(Some(encoder.finish()));
                 frame.present();
             }
             Event::WindowEvent {
@@ -131,7 +135,33 @@ async fn main() {
             } => {
                 *control_flow = ControlFlow::Exit;
             }
+            Event::WindowEvent {
+                event:
+                    WindowEvent::Moved(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::ScaleFactorChanged { .. },
+                ..
+            } => {
+                metrics_changed(&flutter, &window);
+            }
             _ => {}
         }
     });
+}
+
+fn metrics_changed(flutter: &FlutterApplication, window: &Window) {
+    let size = window.inner_size();
+    let position = window
+        .inner_position()
+        .unwrap_or(PhysicalPosition { x: 0, y: 0 });
+    flutter.metrics_changed(
+        size.width,
+        size.height,
+        window
+            .current_monitor()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(1.0),
+        position.x,
+        position.y,
+    );
 }
