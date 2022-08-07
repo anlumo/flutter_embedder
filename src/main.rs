@@ -3,9 +3,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use wgpu::{
-    Backends, Color, CommandEncoderDescriptor, DeviceDescriptor, Features, Instance, Limits,
-    LoadOp, Operations, PresentMode, RenderPassColorAttachment, RenderPassDescriptor,
-    RequestAdapterOptions, SurfaceConfiguration, TextureUsages, TextureViewDescriptor,
+    Backends, DeviceDescriptor, Features, Instance, Limits, PresentMode, RequestAdapterOptions,
+    SurfaceConfiguration, TextureUsages,
 };
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
@@ -17,7 +16,6 @@ use winit::{
 mod flutter_application;
 use flutter_application::FlutterApplication;
 mod compositor;
-use compositor::Compositor;
 
 mod flutter_bindings;
 mod utils;
@@ -89,10 +87,17 @@ async fn main() {
     let flutter = FlutterApplication::new(
         &args.asset_bundle_path,
         args.flutter_flags,
+        surface,
         instance,
         device,
         queue,
     );
+
+    flutter.run();
+
+    // Trigger a FlutterEngineSendWindowMetricsEvent to communicate the initial
+    // size of the window.
+    metrics_changed(&flutter, &window);
 
     event_loop.run(move |event, _, control_flow| {
         let _ = &adapter;
@@ -100,34 +105,7 @@ async fn main() {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::RedrawRequested(_window_id) => {
-                let frame = surface
-                    .get_current_texture()
-                    .expect("Failed to acquire next swap chain texture");
-                let view = frame.texture.create_view(&TextureViewDescriptor::default());
-                let mut encoder = flutter
-                    .device()
-                    .create_command_encoder(&CommandEncoderDescriptor { label: None });
-                {
-                    encoder.begin_render_pass(&RenderPassDescriptor {
-                        label: None,
-                        color_attachments: &[Some(RenderPassColorAttachment {
-                            view: &view,
-                            resolve_target: None,
-                            ops: Operations {
-                                load: LoadOp::Clear(Color {
-                                    r: 0.0,
-                                    g: 1.0,
-                                    b: 0.0,
-                                    a: 1.0,
-                                }),
-                                store: true,
-                            },
-                        })],
-                        depth_stencil_attachment: None,
-                    });
-                }
-                flutter.queue().submit(Some(encoder.finish()));
-                frame.present();
+                flutter.schedule_frame();
             }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,

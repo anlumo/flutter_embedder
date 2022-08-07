@@ -5,25 +5,26 @@ use std::{
         raw::{c_char, c_void},
         unix::prelude::OsStrExt,
     },
-    path::Path,
+    path::{Path, PathBuf},
     ptr::{null, null_mut},
     sync::Mutex,
 };
 
 use ash::vk::Handle;
-use wgpu::{Device, Instance, Queue};
+use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 
 use crate::{
     compositor::Compositor,
     flutter_bindings::{
-        FlutterEngine, FlutterEngineInitialize, FlutterEngineResult,
+        FlutterEngine, FlutterEngineInitialize, FlutterEngineOnVsync, FlutterEngineResult,
         FlutterEngineResult_kInternalInconsistency, FlutterEngineResult_kInvalidArguments,
         FlutterEngineResult_kInvalidLibraryVersion, FlutterEngineResult_kSuccess,
-        FlutterEngineRunInitialized, FlutterEngineSendPlatformMessageResponse,
-        FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
-        FlutterPlatformMessage, FlutterProjectArgs, FlutterRendererConfig,
-        FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan, FlutterVulkanImage,
+        FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
+        FlutterEngineSendPlatformMessageResponse, FlutterEngineSendWindowMetricsEvent,
+        FlutterEngineShutdown, FlutterFrameInfo, FlutterPlatformMessage, FlutterProjectArgs,
+        FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
+        FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterVulkanImage,
         FlutterVulkanInstanceHandle, FlutterVulkanRendererConfig, FlutterWindowMetricsEvent,
         FLUTTER_ENGINE_VERSION,
     },
@@ -33,6 +34,7 @@ use crate::{
 pub struct FlutterApplication {
     engine: FlutterEngine,
     compositor: Mutex<Compositor>,
+    surface: Surface,
     instance: Instance,
     device: Device,
     queue: Queue,
@@ -42,6 +44,7 @@ impl FlutterApplication {
     pub fn new(
         asset_bundle_path: &Path,
         flutter_flags: Vec<String>,
+        surface: Surface,
         instance: Instance,
         device: Device,
         queue: Queue,
@@ -49,9 +52,11 @@ impl FlutterApplication {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
         }
-        let icudtl_dat = Path::new("icudtl.dat");
-        if icudtl_dat.exists() {
-            panic!("icudtl.dat not found in the current directory.");
+        let mut icudtl_dat = PathBuf::new();
+        icudtl_dat.push("linux");
+        icudtl_dat.push("icudtl.dat");
+        if !icudtl_dat.exists() {
+            panic!("{icudtl_dat:?} not found.");
         }
         let (raw_instance, version, instance_extensions) = unsafe {
             instance.as_hal::<Vulkan, _, _>(|instance| {
@@ -134,6 +139,7 @@ impl FlutterApplication {
         let mut instance = Self {
             engine: null_mut(),
             compositor,
+            surface,
             instance,
             device,
             queue,
@@ -144,17 +150,18 @@ impl FlutterApplication {
             .unwrap()
             .flutter_compositor(&instance);
 
+        let icu_data_path = CString::new(icudtl_dat.as_os_str().as_bytes()).unwrap();
         let mut args = unsafe { MaybeUninit::<FlutterProjectArgs>::zeroed().assume_init() };
         args.struct_size = size_of::<FlutterProjectArgs>() as _;
         args.assets_path = asset_bundle_path.as_os_str().as_bytes().as_ptr() as _;
-        args.icu_data_path = icudtl_dat.as_os_str().as_bytes().as_ptr() as _;
+        args.icu_data_path = icu_data_path.as_ptr() as _;
         args.command_line_argc = flutter_flags.len() as _;
         args.command_line_argv = argv_ptr.as_ptr();
         args.platform_message_callback = Some(Self::platform_message_callback);
-        // args.root_isolate_create_callback = todo!();
-        // args.update_semantics_node_callback = todo!();
-        // args.update_semantics_custom_action_callback = todo!();
-        // args.vsync_callback = todo!();
+        args.root_isolate_create_callback = Some(Self::root_isolate_create);
+        args.update_semantics_node_callback = Some(Self::update_semantics_node);
+        args.update_semantics_custom_action_callback = Some(Self::update_semantics_custom_action);
+        args.vsync_callback = Some(Self::vsync_callback);
         args.shutdown_dart_vm_when_done = true;
         args.compositor = &flutter_compositor as _;
         args.dart_old_gen_heap_size = -1;
@@ -189,25 +196,29 @@ impl FlutterApplication {
     }
 
     pub fn metrics_changed(&self, width: u32, height: u32, pixel_ratio: f64, x: i32, y: i32) {
-        Self::unwrap_result(unsafe {
-            FlutterEngineSendWindowMetricsEvent(
-                self.engine,
-                &FlutterWindowMetricsEvent {
-                    struct_size: size_of::<FlutterWindowMetricsEvent>() as _,
-                    width: width as _,
-                    height: height as _,
-                    pixel_ratio,
-                    left: x.max(0) as _,
-                    top: y.max(0) as _,
-                    physical_view_inset_top: 0.0,
-                    physical_view_inset_right: 0.0,
-                    physical_view_inset_bottom: 0.0,
-                    physical_view_inset_left: 0.0,
-                },
-            )
-        });
+        let metrics = FlutterWindowMetricsEvent {
+            struct_size: size_of::<FlutterWindowMetricsEvent>() as _,
+            width: width as _,
+            height: height as _,
+            pixel_ratio,
+            left: x.max(0) as _,
+            top: y.max(0) as _,
+            physical_view_inset_top: 0.0,
+            physical_view_inset_right: 0.0,
+            physical_view_inset_bottom: 0.0,
+            physical_view_inset_left: 0.0,
+        };
+        log::debug!("setting metrics to {metrics:?}");
+        Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
     }
 
+    pub fn schedule_frame(&self) {
+        Self::unwrap_result(unsafe { FlutterEngineScheduleFrame(self.engine) });
+    }
+
+    pub fn surface(&self) -> &Surface {
+        &self.surface
+    }
     pub fn instance(&self) -> &Instance {
         &self.instance
     }
@@ -241,6 +252,25 @@ impl FlutterApplication {
         });
     }
 
+    extern "C" fn root_isolate_create(_user_data: *mut c_void) {}
+
+    extern "C" fn update_semantics_node(
+        _semantics_node: *const FlutterSemanticsNode,
+        _user_data: *mut c_void,
+    ) {
+    }
+    extern "C" fn update_semantics_custom_action(
+        _semantics_custom_action: *const FlutterSemanticsCustomAction,
+        _user_data: *mut c_void,
+    ) {
+    }
+
+    extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
+        let this = unsafe { &*(user_data as *mut Self) };
+        // TODO: proper vsync
+        Self::unwrap_result(unsafe { FlutterEngineOnVsync(this.engine, baton, 0, 16666666) });
+    }
+
     extern "C" fn on_pre_engine_restart_callback(user_data: *mut c_void) {
         let _this = user_data as *mut Self;
         todo!()
@@ -267,25 +297,50 @@ impl FlutterApplication {
         name: *const c_char,
     ) -> *mut c_void {
         let this = user_data as *mut Self;
-        unsafe {
+        let result = unsafe {
             (*this).instance.as_hal::<Vulkan, _, _>(|instance| {
                 instance.and_then(|instance| {
                     let shared = instance.shared_instance();
                     let entry = shared.entry();
-                    entry
-                        .get_instance_proc_addr(shared.raw_instance().handle(), name)
-                        .map(|f| f as *mut c_void)
+                    let cname = CStr::from_ptr(name);
+                    if cname == CStr::from_bytes_with_nul(b"vkCreateInstance\0").unwrap() {
+                        Some(entry.fp_v1_0().create_instance as *mut c_void)
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkCreateDebugReportCallbackEXT\0").unwrap()
+                    {
+                        None
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceExtensionProperties\0")
+                            .unwrap()
+                    {
+                        Some(entry.fp_v1_0().enumerate_instance_extension_properties as *mut c_void)
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceLayerProperties\0")
+                            .unwrap()
+                    {
+                        Some(entry.fp_v1_0().enumerate_instance_layer_properties as *mut c_void)
+                    } else {
+                        entry
+                            .get_instance_proc_addr(shared.raw_instance().handle(), name)
+                            .map(|f| f as *mut c_void)
+                    }
                 })
             })
         }
-        .unwrap_or_else(null_mut)
+        .unwrap_or_else(null_mut);
+        log::debug!(
+            "instance_proc_address_callback: {} -> {:?}",
+            unsafe { CStr::from_ptr(name) }.to_str().unwrap(),
+            result,
+        );
+        result
     }
 
     extern "C" fn next_image(
         _user_data: *mut c_void,
         _frame_info: *const FlutterFrameInfo,
     ) -> FlutterVulkanImage {
-        todo!()
+        unimplemented!()
         // Not used if a FlutterCompositor is supplied in FlutterProjectArgs.
     }
 
@@ -293,7 +348,7 @@ impl FlutterApplication {
         _user_data: *mut c_void,
         _image: *const FlutterVulkanImage,
     ) -> bool {
-        todo!()
+        unimplemented!()
         // Not used if a FlutterCompositor is supplied in FlutterProjectArgs.
     }
 

@@ -1,7 +1,10 @@
 use std::{ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
-use wgpu::{Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages};
+use wgpu::{
+    CommandEncoderDescriptor, Extent3d, ImageCopyTextureBase, ImageSubresourceRange, Origin3d,
+    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+};
 use wgpu_hal::api::Vulkan;
 
 use crate::{
@@ -92,30 +95,84 @@ impl Compositor {
         layers_count: size_t,
         user_data: *mut c_void,
     ) -> bool {
-        let _this = user_data as *const FlutterApplication;
-        for &layer in unsafe { std::slice::from_raw_parts(layers, layers_count as _) } {
-            let layer = unsafe { &*layer };
-            let offset = layer.offset;
-            let size = layer.size;
-            match layer.type_ {
-                x if x == FlutterLayerContentType_kFlutterLayerContentTypeBackingStore => {
-                    let backing_store = unsafe { &*layer.__bindgen_anon_1.backing_store };
-                    assert_eq!(
-                        backing_store.type_,
-                        FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan
-                    );
-                    let backing_store = unsafe { &backing_store.__bindgen_anon_1.vulkan };
-                    let texture = unsafe { &*(backing_store.user_data as *mut Texture) };
+        let flutter = unsafe { &*(user_data as *const FlutterApplication) };
 
-                    // TODO: draw texture to backing buffer
-                    todo!()
+        let frame = flutter
+            .surface()
+            .get_current_texture()
+            .expect("Failed to acquire next swap chain texture");
+        // let view = frame.texture.create_view(&TextureViewDescriptor::default());
+        let mut encoder = flutter
+            .device()
+            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        {
+            encoder.clear_texture(&frame.texture, &ImageSubresourceRange::default());
+            // encoder.begin_render_pass(&RenderPassDescriptor {
+            //     label: None,
+            //     color_attachments: &[Some(RenderPassColorAttachment {
+            //         view: &view,
+            //         resolve_target: None,
+            //         ops: Operations {
+            //             load: LoadOp::Clear(Color {
+            //                 r: 0.0,
+            //                 g: 1.0,
+            //                 b: 0.0,
+            //                 a: 1.0,
+            //             }),
+            //             store: true,
+            //         },
+            //     })],
+            //     depth_stencil_attachment: None,
+            // });
+
+            for &layer in unsafe { std::slice::from_raw_parts(layers, layers_count as _) } {
+                let layer = unsafe { &*layer };
+                let offset = layer.offset;
+                let size = layer.size;
+                match layer.type_ {
+                    x if x == FlutterLayerContentType_kFlutterLayerContentTypeBackingStore => {
+                        let backing_store = unsafe { &*layer.__bindgen_anon_1.backing_store };
+                        assert_eq!(
+                            backing_store.type_,
+                            FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan
+                        );
+                        let backing_store = unsafe { &backing_store.__bindgen_anon_1.vulkan };
+                        let texture = unsafe { &*(backing_store.user_data as *mut Texture) };
+
+                        encoder.copy_texture_to_texture(
+                            ImageCopyTextureBase {
+                                texture,
+                                mip_level: 1,
+                                origin: Origin3d::ZERO,
+                                aspect: TextureAspect::All,
+                            },
+                            ImageCopyTextureBase {
+                                texture: &frame.texture,
+                                mip_level: 1,
+                                origin: Origin3d {
+                                    x: offset.x as _,
+                                    y: offset.y as _,
+                                    z: 0,
+                                },
+                                aspect: TextureAspect::All,
+                            },
+                            Extent3d {
+                                width: size.width as _,
+                                height: size.height as _,
+                                depth_or_array_layers: 1,
+                            },
+                        );
+                    }
+                    x if x == FlutterLayerContentType_kFlutterLayerContentTypePlatformView => {
+                        todo!()
+                    }
+                    _ => panic!("Invalid layer type"),
                 }
-                x if x == FlutterLayerContentType_kFlutterLayerContentTypePlatformView => todo!(),
-                _ => panic!("Invalid layer type"),
             }
         }
-
-        todo!()
+        flutter.queue().submit(Some(encoder.finish()));
+        frame.present();
+        true
     }
     extern "C" fn backing_store_collect_callback(
         _renderer: *const FlutterBackingStore,
