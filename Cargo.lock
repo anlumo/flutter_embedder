@@ -1692,6 +1692,7 @@ dependencies = [
 [[package]]
 name = "wgpu"
 version = "0.13.0"
+source = "git+https://github.com/anlumo/wgpu#17dd4eb52b8b1afed7c7fd2d57ad08067f37369f"
 dependencies = [
  "arrayvec 0.7.2",
  "js-sys",
@@ -1711,6 +1712,7 @@ dependencies = [
 [[package]]
 name = "wgpu-core"
 version = "0.13.0"
+source = "git+https://github.com/anlumo/wgpu#17dd4eb52b8b1afed7c7fd2d57ad08067f37369f"
 dependencies = [
  "arrayvec 0.7.2",
  "bit-vec",
@@ -1734,6 +1736,7 @@ dependencies = [
 [[package]]
 name = "wgpu-hal"
 version = "0.13.0"
+source = "git+https://github.com/anlumo/wgpu#17dd4eb52b8b1afed7c7fd2d57ad08067f37369f"
 dependencies = [
  "android_system_properties",
  "arrayvec 0.7.2",
@@ -1771,6 +1774,7 @@ dependencies = [
 [[package]]
 name = "wgpu-types"
 version = "0.13.0"
+source = "git+https://github.com/anlumo/wgpu#17dd4eb52b8b1afed7c7fd2d57ad08067f37369f"
 dependencies = [
  "bitflags",
 ]
