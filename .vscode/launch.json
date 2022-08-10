@@ -20,9 +20,10 @@
                 }
             },
             "env": {
-                "RUST_LOG": "debug"
+                "RUST_LOG": "debug",
+                "WAYLAND_DISPLAY": ""
             },
-            "args": ["../../smartlab/smartlab_ui/build/flutter_assets/"],
+            "args": ["../../homebox/fomebox/build/flutter_assets/"],
             "cwd": "${workspaceFolder}"
         }
     ]

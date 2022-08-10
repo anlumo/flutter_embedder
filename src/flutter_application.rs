@@ -17,10 +17,10 @@ use wgpu_hal::api::Vulkan;
 use crate::{
     compositor::Compositor,
     flutter_bindings::{
-        FlutterEngine, FlutterEngineInitialize, FlutterEngineOnVsync, FlutterEngineResult,
-        FlutterEngineResult_kInternalInconsistency, FlutterEngineResult_kInvalidArguments,
-        FlutterEngineResult_kInvalidLibraryVersion, FlutterEngineResult_kSuccess,
-        FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
+        FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData, FlutterEngineInitialize,
+        FlutterEngineOnVsync, FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
+        FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
+        FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
         FlutterEngineSendPlatformMessageResponse, FlutterEngineSendWindowMetricsEvent,
         FlutterEngineShutdown, FlutterFrameInfo, FlutterPlatformMessage, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
@@ -38,6 +38,7 @@ pub struct FlutterApplication {
     instance: Instance,
     device: Device,
     queue: Queue,
+    aot_data: Vec<FlutterEngineAOTData>,
 }
 
 impl FlutterApplication {
@@ -63,10 +64,9 @@ impl FlutterApplication {
                 instance.map(|instance| {
                     let raw_instance = instance.shared_instance().raw_instance();
                     let raw_handle = raw_instance.handle().as_raw();
-
                     (
                         raw_handle,
-                        instance.shared_instance().driver_api_version(),
+                        0, // skip check, we're using 1.3 but flutter only supports up to 1.2 right now //instance.shared_instance().driver_api_version(),
                         instance
                             .shared_instance()
                             .extensions()
@@ -143,6 +143,7 @@ impl FlutterApplication {
             instance,
             device,
             queue,
+            aot_data: vec![],
         };
         let flutter_compositor = instance
             .compositor
@@ -168,6 +169,9 @@ impl FlutterApplication {
         args.log_message_callback = Some(Self::log_message_callback);
         args.on_pre_engine_restart_callback = Some(Self::on_pre_engine_restart_callback);
 
+        std::fs::create_dir("cache").ok();
+        args.persistent_cache_path = b"cache".as_ptr() as _;
+
         let mut engine = null_mut();
 
         Self::unwrap_result(unsafe {
@@ -185,6 +189,7 @@ impl FlutterApplication {
         drop(instance_extensions);
         drop(device_extensions);
         drop(flutter_compositor);
+        drop(argv);
 
         instance.engine = engine;
 
@@ -252,17 +257,23 @@ impl FlutterApplication {
         });
     }
 
-    extern "C" fn root_isolate_create(_user_data: *mut c_void) {}
+    extern "C" fn root_isolate_create(_user_data: *mut c_void) {
+        log::trace!("root_isolate_create");
+    }
 
     extern "C" fn update_semantics_node(
-        _semantics_node: *const FlutterSemanticsNode,
+        semantics_node: *const FlutterSemanticsNode,
         _user_data: *mut c_void,
     ) {
+        log::trace!("update_semantics_node {:?}", unsafe { *semantics_node });
     }
     extern "C" fn update_semantics_custom_action(
-        _semantics_custom_action: *const FlutterSemanticsCustomAction,
+        semantics_custom_action: *const FlutterSemanticsCustomAction,
         _user_data: *mut c_void,
     ) {
+        log::trace!("update_semantics_custom_action {:?}", unsafe {
+            *semantics_custom_action
+        });
     }
 
     extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
@@ -328,7 +339,7 @@ impl FlutterApplication {
             })
         }
         .unwrap_or_else(null_mut);
-        log::debug!(
+        log::trace!(
             "instance_proc_address_callback: {} -> {:?}",
             unsafe { CStr::from_ptr(name) }.to_str().unwrap(),
             result,
@@ -375,5 +386,10 @@ impl FlutterApplication {
 impl Drop for FlutterApplication {
     fn drop(&mut self) {
         Self::unwrap_result(unsafe { FlutterEngineShutdown(self.engine) });
+        for &aot_data in &self.aot_data {
+            unsafe {
+                FlutterEngineCollectAOTData(aot_data);
+            }
+        }
     }
 }

@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 use wgpu::{
-    Backends, DeviceDescriptor, Features, Instance, Limits, PresentMode, RequestAdapterOptions,
-    SurfaceConfiguration, TextureUsages,
+    Backends, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode,
+    RequestAdapterOptions, SurfaceConfiguration, TextureUsages,
 };
 use winit::{
     dpi::{PhysicalPosition, PhysicalSize},
@@ -46,17 +46,18 @@ async fn main() {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("Flutter Embedder")
-        .with_inner_size(PhysicalSize::new(1024, 768))
+        // .with_inner_size(PhysicalSize::new(1024, 768))
         .build(&event_loop)
         .unwrap();
-    window.set_outer_position(PhysicalPosition::new(100, 100));
+    // window.set_outer_position(PhysicalPosition::new(100, 100));
 
     let instance = Instance::new(Backends::VULKAN);
     let surface = unsafe { instance.create_surface(&window) };
     let adapter = instance
         .request_adapter(&RequestAdapterOptions {
+            power_preference: PowerPreference::default(),
             compatible_surface: Some(&surface),
-            ..Default::default()
+            force_fallback_adapter: false,
         })
         .await
         .unwrap();
@@ -73,13 +74,15 @@ async fn main() {
         .await
         .expect("Failed to create device");
 
+    let size = window.inner_size();
+
     surface.configure(
         &device,
         &SurfaceConfiguration {
             usage: TextureUsages::RENDER_ATTACHMENT,
             format: surface.get_supported_formats(&adapter)[0],
-            width: 1024,
-            height: 768,
+            width: size.width,
+            height: size.height,
             present_mode: PresentMode::Fifo,
         },
     );
