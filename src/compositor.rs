@@ -145,13 +145,13 @@ impl Compositor {
                         encoder.copy_texture_to_texture(
                             ImageCopyTextureBase {
                                 texture,
-                                mip_level: 1,
+                                mip_level: 0,
                                 origin: Origin3d::ZERO,
                                 aspect: TextureAspect::All,
                             },
                             ImageCopyTextureBase {
                                 texture: &frame.texture,
-                                mip_level: 1,
+                                mip_level: 0,
                                 origin: Origin3d {
                                     x: offset.x as _,
                                     y: offset.y as _,
