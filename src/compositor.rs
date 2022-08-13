@@ -45,7 +45,7 @@ impl Compositor {
         let application =
             unsafe { &*(user_data as *const FlutterApplication) as &FlutterApplication };
 
-        let texture = Box::new(application.device().create_texture(&TextureDescriptor {
+        let texture = application.device().create_texture(&TextureDescriptor {
             label: Some("Flutter Backing Store"),
             size: wgpu::Extent3d {
                 width: unsafe { *config }.size.width as _,
@@ -59,7 +59,7 @@ impl Compositor {
             usage: TextureUsages::COPY_SRC
                 | TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::TEXTURE_BINDING,
-        }));
+        });
 
         let mut image = None;
         unsafe {
@@ -72,6 +72,8 @@ impl Compositor {
                 });
             });
         }
+        let image = image.unwrap();
+        let user_data = Box::new((texture, image));
         let mut backing_store = unsafe { &mut *backing_store_out as &mut FlutterBackingStore };
         backing_store.user_data = null_mut();
         backing_store.type_ = FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan;
@@ -79,15 +81,16 @@ impl Compositor {
         backing_store.__bindgen_anon_1 = FlutterBackingStore__bindgen_ty_1 {
             vulkan: FlutterVulkanBackingStore {
                 struct_size: size_of::<FlutterVulkanBackingStore>() as _,
-                image: &image.unwrap(),
-                user_data: Box::into_raw(texture) as _,
+                image: &user_data.1,
+                user_data: Box::into_raw(user_data) as _,
                 destruction_callback: Some(Self::destroy_texture),
             },
         };
         true
     }
     extern "C" fn destroy_texture(user_data: *mut c_void) {
-        let texture = unsafe { Box::from_raw(user_data as *mut Texture) };
+        let (texture, _image) =
+            *unsafe { Box::from_raw(user_data as *mut (Texture, FlutterVulkanImage)) };
         texture.destroy();
     }
     extern "C" fn present_layers_callback(
