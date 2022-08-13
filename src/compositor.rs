@@ -55,7 +55,7 @@ impl Compositor {
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8UnormSrgb,
+            format: TextureFormat::Bgra8Unorm,
             usage: TextureUsages::COPY_SRC
                 | TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::TEXTURE_BINDING,
@@ -68,7 +68,7 @@ impl Compositor {
                 image = Some(FlutterVulkanImage {
                     struct_size: size_of::<FlutterVulkanImage>() as _,
                     image: texture.raw_handle().as_raw() as _,
-                    format: ash::vk::Format::B8G8R8A8_SRGB.as_raw() as _,
+                    format: ash::vk::Format::B8G8R8A8_UNORM.as_raw() as _,
                 });
             });
         }

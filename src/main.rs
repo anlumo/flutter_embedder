@@ -4,10 +4,10 @@ use std::path::PathBuf;
 use clap::Parser;
 use wgpu::{
     Backends, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode,
-    RequestAdapterOptions, SurfaceConfiguration, TextureUsages,
+    RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages,
 };
 use winit::{
-    dpi::{PhysicalPosition, PhysicalSize},
+    dpi::PhysicalPosition,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -66,7 +66,7 @@ async fn main() {
         .request_device(
             &DeviceDescriptor {
                 label: None,
-                features: Features::empty(),
+                features: Features::CLEAR_TEXTURE,
                 limits: Limits::downlevel_defaults(),
             },
             None,
@@ -76,11 +76,21 @@ async fn main() {
 
     let size = window.inner_size();
 
+    log::debug!(
+        "Supported formats: {:?}",
+        surface.get_supported_formats(&adapter)
+    );
+    let formats = surface.get_supported_formats(&adapter);
+    let format = formats
+        .into_iter()
+        .find(|&format| format == TextureFormat::Bgra8Unorm)
+        .expect("Adapter doesn't support BGRA8 render buffer.");
+
     surface.configure(
         &device,
         &SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT,
-            format: surface.get_supported_formats(&adapter)[0],
+            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_DST,
+            format,
             width: size.width,
             height: size.height,
             present_mode: PresentMode::Fifo,
