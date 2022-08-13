@@ -20,7 +20,7 @@
                 }
             },
             "env": {
-                "RUST_LOG": "debug",
+                "RUST_LOG": "flutter_embedder=debug",
                 "WAYLAND_DISPLAY": ""
             },
             "args": ["../../homebox/fomebox/build/flutter_assets/"],
