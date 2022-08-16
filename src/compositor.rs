@@ -2,8 +2,8 @@ use std::{ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
 use wgpu::{
-    CommandEncoderDescriptor, Extent3d, ImageCopyTextureBase, ImageSubresourceRange, Origin3d,
-    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    CommandEncoderDescriptor, Extent3d, ImageCopyTextureBase, Origin3d, Texture, TextureAspect,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 use wgpu_hal::api::Vulkan;
 
@@ -104,12 +104,11 @@ impl Compositor {
             .surface()
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
-        // let view = frame.texture.create_view(&TextureViewDescriptor::default());
         let mut encoder = flutter
             .device()
             .create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
-            encoder.clear_texture(&frame.texture, &ImageSubresourceRange::default());
+            // encoder.clear_texture(&frame.texture, &ImageSubresourceRange::default());
             // encoder.begin_render_pass(&RenderPassDescriptor {
             //     label: None,
             //     color_attachments: &[Some(RenderPassColorAttachment {

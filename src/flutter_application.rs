@@ -17,8 +17,9 @@ use wgpu_hal::api::Vulkan;
 use crate::{
     compositor::Compositor,
     flutter_bindings::{
-        FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData, FlutterEngineInitialize,
-        FlutterEngineOnVsync, FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
+        FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
+        FlutterEngineGetCurrentTime, FlutterEngineInitialize, FlutterEngineOnVsync,
+        FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
         FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
         FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
         FlutterEngineSendPlatformMessageResponse, FlutterEngineSendWindowMetricsEvent,
@@ -278,8 +279,11 @@ impl FlutterApplication {
 
     extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
         let this = unsafe { &*(user_data as *mut Self) };
-        // TODO: proper vsync
-        Self::unwrap_result(unsafe { FlutterEngineOnVsync(this.engine, baton, 0, 16666666) });
+        this.device().poll(wgpu::Maintain::Wait);
+        let time = unsafe { FlutterEngineGetCurrentTime() };
+        Self::unwrap_result(unsafe {
+            FlutterEngineOnVsync(this.engine, baton, time, time + 1000000000 / 60)
+        });
     }
 
     extern "C" fn on_pre_engine_restart_callback(user_data: *mut c_void) {
