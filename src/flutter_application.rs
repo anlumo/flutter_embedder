@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
     os::{
@@ -13,6 +14,10 @@ use std::{
 use ash::vk::Handle;
 use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
+use winit::{
+    dpi::PhysicalPosition,
+    event::{DeviceId, ElementState, MouseButton},
+};
 
 use crate::{
     compositor::Compositor,
@@ -22,8 +27,13 @@ use crate::{
         FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
         FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
         FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
-        FlutterEngineSendPlatformMessageResponse, FlutterEngineSendWindowMetricsEvent,
-        FlutterEngineShutdown, FlutterFrameInfo, FlutterPlatformMessage, FlutterProjectArgs,
+        FlutterEngineSendPlatformMessageResponse, FlutterEngineSendPointerEvent,
+        FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
+        FlutterPlatformMessage, FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
+        FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
+        FlutterPointerPhase_kDown, FlutterPointerPhase_kHover, FlutterPointerPhase_kMove,
+        FlutterPointerPhase_kRemove, FlutterPointerPhase_kUp,
+        FlutterPointerSignalKind_kFlutterPointerSignalKindNone, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
         FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterVulkanImage,
         FlutterVulkanInstanceHandle, FlutterVulkanRendererConfig, FlutterWindowMetricsEvent,
@@ -31,6 +41,12 @@ use crate::{
     },
     utils::flutter_asset_bundle_is_valid,
 };
+
+struct PointerState {
+    virtual_id: i32,
+    position: PhysicalPosition<f64>,
+    held_buttons: u64,
+}
 
 pub struct FlutterApplication {
     engine: FlutterEngine,
@@ -40,6 +56,8 @@ pub struct FlutterApplication {
     device: Device,
     queue: Queue,
     aot_data: Vec<FlutterEngineAOTData>,
+    mice: HashMap<DeviceId, PointerState>,
+    current_mouse_id: i32,
 }
 
 impl FlutterApplication {
@@ -145,6 +163,8 @@ impl FlutterApplication {
             device,
             queue,
             aot_data: vec![],
+            mice: Default::default(),
+            current_mouse_id: 0,
         };
         let flutter_compositor = instance
             .compositor
@@ -218,6 +238,93 @@ impl FlutterApplication {
         Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
     }
 
+    fn get_mouse(&mut self, device_id: DeviceId) -> &mut PointerState {
+        if !self.mice.contains_key(&device_id) {
+            let virtual_id = self.current_mouse_id;
+            self.current_mouse_id += 1;
+            self.mice.insert(
+                device_id,
+                PointerState {
+                    virtual_id,
+                    position: PhysicalPosition::new(0.0, 0.0),
+                    held_buttons: 0,
+                },
+            );
+            self.send_pointer_event(device_id, FlutterPointerPhase_kAdd);
+        }
+        self.mice.get_mut(&device_id).unwrap()
+    }
+
+    pub fn mouse_buttons(&mut self, device_id: DeviceId, state: ElementState, button: MouseButton) {
+        let mouse = self.get_mouse(device_id);
+        let button_idx = match button {
+            MouseButton::Left => 1,
+            MouseButton::Right => 2,
+            MouseButton::Middle => 4,
+            MouseButton::Other(x) => 1 << x,
+        };
+        match state {
+            ElementState::Pressed => mouse.held_buttons ^= button_idx,
+            ElementState::Released => mouse.held_buttons &= !button_idx,
+        }
+
+        self.send_pointer_event(
+            device_id,
+            if state == ElementState::Pressed {
+                FlutterPointerPhase_kDown
+            } else {
+                FlutterPointerPhase_kUp
+            },
+        );
+    }
+
+    pub fn mouse_entered(&mut self, device_id: DeviceId) {
+        self.get_mouse(device_id);
+    }
+
+    pub fn mouse_left(&mut self, device_id: DeviceId) {
+        self.send_pointer_event(device_id, FlutterPointerPhase_kRemove);
+        self.mice.remove(&device_id);
+    }
+
+    pub fn mouse_moved(&mut self, device_id: DeviceId, position: PhysicalPosition<f64>) {
+        let mouse = self.get_mouse(device_id);
+        mouse.position = position;
+        let buttons = mouse.held_buttons;
+        self.send_pointer_event(
+            device_id,
+            if buttons == 0 {
+                FlutterPointerPhase_kHover
+            } else {
+                FlutterPointerPhase_kMove
+            },
+        );
+    }
+
+    fn send_pointer_event(&self, device_id: DeviceId, phase: FlutterPointerPhase) {
+        if let Some(mouse) = self.mice.get(&device_id) {
+            let event = FlutterPointerEvent {
+                struct_size: size_of::<FlutterPointerEvent>() as _,
+                phase,
+                timestamp: Self::current_time(),
+                x: mouse.position.x,
+                y: mouse.position.y,
+                device: mouse.virtual_id,
+                signal_kind: FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+                scroll_delta_x: 0.0,
+                scroll_delta_y: 0.0,
+                device_kind: FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
+                buttons: mouse.held_buttons as _,
+                pan_x: 0.0,
+                pan_y: 0.0,
+                scale: 1.0,
+                rotation: 0.0,
+            };
+            Self::unwrap_result(unsafe { FlutterEngineSendPointerEvent(self.engine, &event, 1) });
+            drop(event);
+        }
+    }
+
     pub fn schedule_frame(&self) {
         Self::unwrap_result(unsafe { FlutterEngineScheduleFrame(self.engine) });
     }
@@ -233,6 +340,10 @@ impl FlutterApplication {
     }
     pub fn queue(&self) -> &Queue {
         &self.queue
+    }
+
+    pub fn current_time() -> u64 {
+        unsafe { FlutterEngineGetCurrentTime() }
     }
 
     extern "C" fn platform_message_callback(
@@ -280,7 +391,7 @@ impl FlutterApplication {
     extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
         let this = unsafe { &*(user_data as *mut Self) };
         this.device().poll(wgpu::Maintain::Wait);
-        let time = unsafe { FlutterEngineGetCurrentTime() };
+        let time = Self::current_time();
         Self::unwrap_result(unsafe {
             FlutterEngineOnVsync(this.engine, baton, time, time + 1000000000 / 60)
         });

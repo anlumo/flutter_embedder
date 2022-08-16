@@ -97,7 +97,7 @@ async fn main() {
         },
     );
 
-    let flutter = FlutterApplication::new(
+    let mut flutter = FlutterApplication::new(
         &args.asset_bundle_path,
         args.flutter_flags,
         surface,
@@ -120,21 +120,46 @@ async fn main() {
             Event::RedrawRequested(_window_id) => {
                 flutter.schedule_frame();
             }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                *control_flow = ControlFlow::Exit;
-            }
-            Event::WindowEvent {
-                event:
-                    WindowEvent::Moved(_)
-                    | WindowEvent::Resized(_)
-                    | WindowEvent::ScaleFactorChanged { .. },
-                ..
-            } => {
-                metrics_changed(&flutter, &window);
-            }
+            Event::WindowEvent { event, .. } => match event {
+                WindowEvent::CloseRequested => {
+                    *control_flow = ControlFlow::Exit;
+                }
+                WindowEvent::Moved(_)
+                | WindowEvent::Resized(_)
+                | WindowEvent::ScaleFactorChanged { .. } => {
+                    metrics_changed(&flutter, &window);
+                }
+                WindowEvent::MouseInput {
+                    device_id,
+                    state,
+                    button,
+                    ..
+                } => {
+                    flutter.mouse_buttons(device_id, state, button);
+                }
+                WindowEvent::CursorEntered { device_id } => {
+                    flutter.mouse_entered(device_id);
+                }
+                WindowEvent::CursorLeft { device_id } => {
+                    flutter.mouse_left(device_id);
+                }
+                WindowEvent::CursorMoved {
+                    device_id,
+                    position,
+                    ..
+                } => {
+                    flutter.mouse_moved(device_id, position);
+                }
+                WindowEvent::MouseWheel {
+                    device_id: _,
+                    delta: _,
+                    phase: _,
+                    ..
+                } => {
+                    todo!()
+                }
+                _ => {}
+            },
             _ => {}
         }
     });
@@ -145,6 +170,13 @@ fn metrics_changed(flutter: &FlutterApplication, window: &Window) {
     let position = window
         .inner_position()
         .unwrap_or(PhysicalPosition { x: 0, y: 0 });
+    log::debug!(
+        "scale_factor = {:?}",
+        window.scale_factor(),
+        // window
+        //     .current_monitor()
+        //     .map(|monitor| monitor.scale_factor())
+    );
     flutter.metrics_changed(
         size.width,
         size.height,
