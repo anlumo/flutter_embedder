@@ -17,7 +17,7 @@ use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
     dpi::PhysicalPosition,
-    event::{DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase},
+    event::{DeviceId, ElementState, KeyboardInput, MouseButton, MouseScrollDelta, TouchPhase},
 };
 
 use crate::{
@@ -28,19 +28,22 @@ use crate::{
         FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
         FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
         FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
-        FlutterEngineSendPlatformMessageResponse, FlutterEngineSendPointerEvent,
-        FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
-        FlutterPlatformMessage, FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
-        FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
-        FlutterPointerPhase_kDown, FlutterPointerPhase_kHover, FlutterPointerPhase_kMove,
-        FlutterPointerPhase_kRemove, FlutterPointerPhase_kUp,
-        FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+        FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessageResponse,
+        FlutterEngineSendPointerEvent, FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown,
+        FlutterFrameInfo, FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
+        FlutterKeyEventType_kFlutterKeyEventTypeUp, FlutterPlatformMessage,
+        FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse, FlutterPointerEvent,
+        FlutterPointerPhase, FlutterPointerPhase_kAdd, FlutterPointerPhase_kDown,
+        FlutterPointerPhase_kHover, FlutterPointerPhase_kMove, FlutterPointerPhase_kRemove,
+        FlutterPointerPhase_kUp, FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
         FlutterPointerSignalKind_kFlutterPointerSignalKindScroll, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
         FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterVulkanImage,
         FlutterVulkanInstanceHandle, FlutterVulkanRendererConfig, FlutterWindowMetricsEvent,
         FLUTTER_ENGINE_VERSION,
     },
+    keyboard_scancode_map::translate_scancode,
+    keyboard_virtual_key_map::translate_virtual_key,
     utils::flutter_asset_bundle_is_valid,
 };
 
@@ -376,6 +379,45 @@ impl FlutterApplication {
             };
             Self::unwrap_result(unsafe { FlutterEngineSendPointerEvent(self.engine, &event, 1) });
             drop(event);
+        }
+    }
+
+    pub fn key_event(&self, _device_id: DeviceId, event: KeyboardInput, synthesized: bool) {
+        log::debug!(
+            "keyboard input: logical {:?} physical {}",
+            event.virtual_keycode,
+            event.scancode
+        );
+        if let (Some(logical), Some(physical)) = (
+            event
+                .virtual_keycode
+                .and_then(|code| translate_virtual_key(code)),
+            translate_scancode(event.scancode),
+        ) {
+            let type_ = match event.state {
+                // TODO: handle repeat
+                ElementState::Pressed => FlutterKeyEventType_kFlutterKeyEventTypeDown,
+                ElementState::Released => FlutterKeyEventType_kFlutterKeyEventTypeUp,
+            };
+            log::debug!("keyboard event: physical {physical:#x} logical {logical:#x}");
+            let character = CStr::from_bytes_with_nul(b"A\0").unwrap();
+            let flutter_event = FlutterKeyEvent {
+                struct_size: size_of::<FlutterKeyEvent>() as _,
+                timestamp: Self::current_time() as f64,
+                type_,
+                physical,
+                logical,
+                character: if event.state == ElementState::Released {
+                    null()
+                } else {
+                    character.as_ptr()
+                },
+                synthesized,
+            };
+            Self::unwrap_result(unsafe {
+                FlutterEngineSendKeyEvent(self.engine, &flutter_event, None, null_mut())
+            });
+            drop(character);
         }
     }
 

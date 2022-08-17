@@ -16,6 +16,8 @@ use winit::{
 mod flutter_application;
 use flutter_application::FlutterApplication;
 mod compositor;
+mod keyboard_scancode_map;
+mod keyboard_virtual_key_map;
 
 mod flutter_bindings;
 mod utils;
@@ -157,6 +159,17 @@ async fn main() {
                     ..
                 } => {
                     flutter.mouse_wheel(device_id, delta, phase);
+                }
+                WindowEvent::KeyboardInput {
+                    device_id,
+                    input,
+                    is_synthetic,
+                } => {
+                    log::debug!("Keyboard input {input:?}");
+                    flutter.key_event(device_id, input, is_synthetic);
+                }
+                WindowEvent::ReceivedCharacter(c) => {
+                    log::debug!("ReceivedCharacter '{c}'");
                 }
                 _ => {}
             },
