@@ -151,12 +151,12 @@ async fn main() {
                     flutter.mouse_moved(device_id, position);
                 }
                 WindowEvent::MouseWheel {
-                    device_id: _,
-                    delta: _,
-                    phase: _,
+                    device_id,
+                    delta,
+                    phase,
                     ..
                 } => {
-                    todo!()
+                    flutter.mouse_wheel(device_id, delta, phase);
                 }
                 _ => {}
             },

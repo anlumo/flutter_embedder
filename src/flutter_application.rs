@@ -16,7 +16,7 @@ use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
     dpi::PhysicalPosition,
-    event::{DeviceId, ElementState, MouseButton},
+    event::{DeviceId, ElementState, MouseButton, MouseScrollDelta, TouchPhase},
 };
 
 use crate::{
@@ -33,7 +33,8 @@ use crate::{
         FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
         FlutterPointerPhase_kDown, FlutterPointerPhase_kHover, FlutterPointerPhase_kMove,
         FlutterPointerPhase_kRemove, FlutterPointerPhase_kUp,
-        FlutterPointerSignalKind_kFlutterPointerSignalKindNone, FlutterProjectArgs,
+        FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+        FlutterPointerSignalKind_kFlutterPointerSignalKindScroll, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
         FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterVulkanImage,
         FlutterVulkanInstanceHandle, FlutterVulkanRendererConfig, FlutterWindowMetricsEvent,
@@ -41,6 +42,8 @@ use crate::{
     },
     utils::flutter_asset_bundle_is_valid,
 };
+
+const PIXELS_PER_LINE: f64 = 10.0;
 
 struct PointerState {
     virtual_id: i32,
@@ -250,13 +253,14 @@ impl FlutterApplication {
                     held_buttons: 0,
                 },
             );
-            self.send_pointer_event(device_id, FlutterPointerPhase_kAdd);
+            self.send_pointer_event(device_id, FlutterPointerPhase_kAdd, None);
         }
         self.mice.get_mut(&device_id).unwrap()
     }
 
     pub fn mouse_buttons(&mut self, device_id: DeviceId, state: ElementState, button: MouseButton) {
         let mouse = self.get_mouse(device_id);
+        let old_buttons_held = mouse.held_buttons != 0;
         let button_idx = match button {
             MouseButton::Left => 1,
             MouseButton::Right => 2,
@@ -267,14 +271,24 @@ impl FlutterApplication {
             ElementState::Pressed => mouse.held_buttons ^= button_idx,
             ElementState::Released => mouse.held_buttons &= !button_idx,
         }
+        let new_buttons_held = mouse.held_buttons != 0;
 
         self.send_pointer_event(
             device_id,
             if state == ElementState::Pressed {
-                FlutterPointerPhase_kDown
+                if old_buttons_held {
+                    FlutterPointerPhase_kMove
+                } else {
+                    FlutterPointerPhase_kDown
+                }
             } else {
-                FlutterPointerPhase_kUp
+                if new_buttons_held {
+                    FlutterPointerPhase_kMove
+                } else {
+                    FlutterPointerPhase_kUp
+                }
             },
+            None,
         );
     }
 
@@ -283,7 +297,7 @@ impl FlutterApplication {
     }
 
     pub fn mouse_left(&mut self, device_id: DeviceId) {
-        self.send_pointer_event(device_id, FlutterPointerPhase_kRemove);
+        self.send_pointer_event(device_id, FlutterPointerPhase_kRemove, None);
         self.mice.remove(&device_id);
     }
 
@@ -298,11 +312,46 @@ impl FlutterApplication {
             } else {
                 FlutterPointerPhase_kMove
             },
+            None,
         );
     }
 
-    fn send_pointer_event(&self, device_id: DeviceId, phase: FlutterPointerPhase) {
+    pub fn mouse_wheel(
+        &mut self,
+        device_id: DeviceId,
+        delta: MouseScrollDelta,
+        _phase: TouchPhase,
+    ) {
+        let mouse = self.get_mouse(device_id);
+        let buttons = mouse.held_buttons;
+        self.send_pointer_event(
+            device_id,
+            if buttons == 0 {
+                FlutterPointerPhase_kHover
+            } else {
+                FlutterPointerPhase_kMove
+            },
+            Some(delta),
+        )
+    }
+
+    fn send_pointer_event(
+        &self,
+        device_id: DeviceId,
+        phase: FlutterPointerPhase,
+        scroll_delta: Option<MouseScrollDelta>,
+    ) {
         if let Some(mouse) = self.mice.get(&device_id) {
+            let scroll_delta_px = {
+                match scroll_delta {
+                    Some(MouseScrollDelta::LineDelta(x, y)) => PhysicalPosition::new(
+                        (x as f64) * PIXELS_PER_LINE,
+                        (y as f64) * PIXELS_PER_LINE,
+                    ),
+                    Some(MouseScrollDelta::PixelDelta(pt)) => pt,
+                    None => PhysicalPosition::new(0.0, 0.0),
+                }
+            };
             let event = FlutterPointerEvent {
                 struct_size: size_of::<FlutterPointerEvent>() as _,
                 phase,
@@ -310,9 +359,13 @@ impl FlutterApplication {
                 x: mouse.position.x,
                 y: mouse.position.y,
                 device: mouse.virtual_id,
-                signal_kind: FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
-                scroll_delta_x: 0.0,
-                scroll_delta_y: 0.0,
+                signal_kind: if scroll_delta.is_none() {
+                    FlutterPointerSignalKind_kFlutterPointerSignalKindNone
+                } else {
+                    FlutterPointerSignalKind_kFlutterPointerSignalKindScroll
+                },
+                scroll_delta_x: scroll_delta_px.x,
+                scroll_delta_y: scroll_delta_px.y,
                 device_kind: FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
                 buttons: mouse.held_buttons as _,
                 pan_x: 0.0,
