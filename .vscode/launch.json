@@ -20,7 +20,7 @@
                 }
             },
             "env": {
-                "RUST_LOG": "flutter_embedder=debug",
+                "RUST_LOG": "debug,wgpu_core=warn",
                 "WAYLAND_DISPLAY": ""
             },
             "args": ["../../homebox/fomebox/build/flutter_assets/"],

@@ -12,6 +12,7 @@ use std::{
 };
 
 use ash::vk::Handle;
+use log::Level;
 use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
@@ -464,6 +465,7 @@ impl FlutterApplication {
         let message = unsafe { CStr::from_ptr(message) };
         log::logger().log(
             &log::Record::builder()
+                .level(Level::Info)
                 .module_path(tag.to_str().ok())
                 .args(format_args!("{}", message.to_str().unwrap()))
                 .build(),
