@@ -15,6 +15,8 @@ wgpu-hal = { git = "https://github.com/anlumo/wgpu", features = ["vulkan"] }
 winit = { git = "https://github.com/anlumo/winit-new-keyboard.git", branch = "new-keyboard-linux", default-features = false, features = ["x11"] }
 tokio = { version = "1.19.2", features = ["full"] }
 ash = "0.37.0"
+serde = { version = "1.0.144", features = ["derive"] }
+serde_json = "1.0.85"
 
 [build-dependencies]
 bindgen = "0.60.1"

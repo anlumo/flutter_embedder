@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
+    io::Read,
     mem::{size_of, MaybeUninit},
     os::{
         raw::{c_char, c_void},
@@ -28,9 +29,10 @@ use crate::{
         FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
         FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
         FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineScheduleFrame,
-        FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessageResponse,
-        FlutterEngineSendPointerEvent, FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown,
-        FlutterFrameInfo, FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
+        FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessage,
+        FlutterEngineSendPlatformMessageResponse, FlutterEngineSendPointerEvent,
+        FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
+        FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
         FlutterKeyEventType_kFlutterKeyEventTypeRepeat, FlutterKeyEventType_kFlutterKeyEventTypeUp,
         FlutterPlatformMessage, FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
         FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
@@ -48,7 +50,12 @@ use crate::{
     utils::flutter_asset_bundle_is_valid,
 };
 
+// mod keyboard_event;
+// use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
+mod text_input;
+
 const PIXELS_PER_LINE: f64 = 10.0;
+const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
 
 struct PointerState {
     virtual_id: i32,
@@ -395,6 +402,55 @@ impl FlutterApplication {
             translate_logical_key(event.logical_key),
             translate_physical_key(event.physical_key),
         ) {
+            // let flutter_event = FlutterKeyboardEvent::Linux {
+            //     r#type: match event.state {
+            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
+            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
+            //     },
+            //     toolkit: LinuxToolkit::Gtk,
+            //     unicode_scalar_values: if let Some(character) = event.text {
+            //         let mut buffer = [0u8; 8];
+            //         if character.as_bytes().read(&mut buffer).is_ok() {
+            //             u64::from_le_bytes(buffer)
+            //         } else {
+            //             0
+            //         }
+            //     } else {
+            //         0
+            //     },
+            //     key_code: physical,
+            //     scan_code: logical,
+            //     modifiers: 0,
+            //     specified_logical_key: 0,
+            // };
+            // let flutter_event = FlutterKeyboardEvent::Web {
+            //     r#type: match event.state {
+            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
+            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
+            //     },
+            //     code: event.text.unwrap_or_default().to_owned(),
+            //     key: event.text.unwrap_or_default().to_owned(),
+            //     location: 0,
+            //     meta_state: 0,
+            //     key_code: 0,
+            // };
+
+            // let json = serde_json::to_vec(&flutter_event).unwrap();
+            // log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
+            // let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
+            // let message = FlutterPlatformMessage {
+            //     struct_size: size_of::<FlutterPlatformMessage>() as _,
+            //     channel: channel.as_ptr(),
+            //     message: json.as_ptr(),
+            //     message_size: json.len() as _,
+            //     response_handle: null(),
+            // };
+
+            // Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });
+
+            // drop(message);
+            // drop(channel);
+
             let type_ = match event.state {
                 ElementState::Pressed => {
                     if event.repeat {
@@ -429,6 +485,8 @@ impl FlutterApplication {
                 FlutterEngineSendKeyEvent(self.engine, &flutter_event, None, null_mut())
             });
             drop(character);
+
+            // TODO: send flutter/textinput message
         }
     }
 
