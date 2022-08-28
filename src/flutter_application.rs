@@ -17,7 +17,7 @@ use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
     dpi::PhysicalPosition,
-    event::{DeviceId, ElementState, KeyboardInput, MouseButton, MouseScrollDelta, TouchPhase},
+    event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
 };
 
 use crate::{
@@ -31,19 +31,20 @@ use crate::{
         FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessageResponse,
         FlutterEngineSendPointerEvent, FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown,
         FlutterFrameInfo, FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
-        FlutterKeyEventType_kFlutterKeyEventTypeUp, FlutterPlatformMessage,
-        FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse, FlutterPointerEvent,
-        FlutterPointerPhase, FlutterPointerPhase_kAdd, FlutterPointerPhase_kDown,
-        FlutterPointerPhase_kHover, FlutterPointerPhase_kMove, FlutterPointerPhase_kRemove,
-        FlutterPointerPhase_kUp, FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+        FlutterKeyEventType_kFlutterKeyEventTypeRepeat, FlutterKeyEventType_kFlutterKeyEventTypeUp,
+        FlutterPlatformMessage, FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
+        FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
+        FlutterPointerPhase_kDown, FlutterPointerPhase_kHover, FlutterPointerPhase_kMove,
+        FlutterPointerPhase_kRemove, FlutterPointerPhase_kUp,
+        FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
         FlutterPointerSignalKind_kFlutterPointerSignalKindScroll, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
         FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterVulkanImage,
         FlutterVulkanInstanceHandle, FlutterVulkanRendererConfig, FlutterWindowMetricsEvent,
         FLUTTER_ENGINE_VERSION,
     },
-    keyboard_scancode_map::translate_scancode,
-    keyboard_virtual_key_map::translate_virtual_key,
+    keyboard_logical_key_map::translate_logical_key,
+    keyboard_physical_key_map::translate_physical_key,
     utils::flutter_asset_bundle_is_valid,
 };
 
@@ -382,25 +383,33 @@ impl FlutterApplication {
         }
     }
 
-    pub fn key_event(&self, _device_id: DeviceId, event: KeyboardInput, synthesized: bool) {
+    pub fn key_event(&self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
         log::debug!(
-            "keyboard input: logical {:?} physical {}",
-            event.virtual_keycode,
-            event.scancode
+            "keyboard input: logical {:?} physical {:?} (Translated {:?}, {:?})",
+            event.logical_key,
+            event.physical_key,
+            translate_logical_key(event.logical_key),
+            translate_physical_key(event.physical_key),
         );
         if let (Some(logical), Some(physical)) = (
-            event
-                .virtual_keycode
-                .and_then(|code| translate_virtual_key(code)),
-            translate_scancode(event.scancode),
+            translate_logical_key(event.logical_key),
+            translate_physical_key(event.physical_key),
         ) {
             let type_ = match event.state {
-                // TODO: handle repeat
-                ElementState::Pressed => FlutterKeyEventType_kFlutterKeyEventTypeDown,
+                ElementState::Pressed => {
+                    if event.repeat {
+                        FlutterKeyEventType_kFlutterKeyEventTypeRepeat
+                    } else {
+                        FlutterKeyEventType_kFlutterKeyEventTypeDown
+                    }
+                }
                 ElementState::Released => FlutterKeyEventType_kFlutterKeyEventTypeUp,
             };
-            log::debug!("keyboard event: physical {physical:#x} logical {logical:#x}");
-            let character = CStr::from_bytes_with_nul(b"A\0").unwrap();
+            log::debug!(
+                "keyboard event: physical {physical:#x} logical {logical:#x} text {:?}",
+                event.text
+            );
+            let character = event.text.map(|text| CString::new(text).unwrap());
             let flutter_event = FlutterKeyEvent {
                 struct_size: size_of::<FlutterKeyEvent>() as _,
                 timestamp: Self::current_time() as f64,
@@ -409,8 +418,10 @@ impl FlutterApplication {
                 logical,
                 character: if event.state == ElementState::Released {
                     null()
-                } else {
+                } else if let Some(character) = &character {
                     character.as_ptr()
+                } else {
+                    null()
                 },
                 synthesized,
             };

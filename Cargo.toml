@@ -11,7 +11,8 @@ env_logger = "0.9"
 # wgpu-hal = { version = "0.13.1", features = ["vulkan"] }
 wgpu = { git = "https://github.com/anlumo/wgpu" }
 wgpu-hal = { git = "https://github.com/anlumo/wgpu", features = ["vulkan"] }
-winit = "0.27.1"
+# winit = "0.27.1"
+winit = { git = "https://github.com/anlumo/winit-new-keyboard.git", branch = "new-keyboard-linux", default-features = false, features = ["x11"] }
 tokio = { version = "1.19.2", features = ["full"] }
 ash = "0.37.0"
 
