@@ -9,7 +9,7 @@ use wgpu::{
 use winit::{
     dpi::PhysicalPosition,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop},
+    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
     window::{Window, WindowBuilder},
 };
 
@@ -45,7 +45,8 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let event_loop = EventLoop::new();
+    let event_loop: EventLoop<Box<dyn FnOnce() + 'static + Send>> =
+        EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("Flutter Embedder")
         // .with_inner_size(PhysicalSize::new(1024, 768))
@@ -106,6 +107,7 @@ async fn main() {
         instance,
         device,
         queue,
+        event_loop.create_proxy(),
     );
 
     flutter.run();
@@ -119,6 +121,9 @@ async fn main() {
 
         *control_flow = ControlFlow::Wait;
         match event {
+            Event::UserEvent(handler) => {
+                handler();
+            }
             Event::RedrawRequested(_window_id) => {
                 flutter.schedule_frame();
             }
