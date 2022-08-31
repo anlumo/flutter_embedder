@@ -45,7 +45,7 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let event_loop: EventLoop<Box<dyn FnOnce() + 'static + Send>> =
+    let event_loop: EventLoop<Box<dyn FnOnce(&FlutterApplication) + 'static + Send>> =
         EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("Flutter Embedder")
@@ -122,7 +122,7 @@ async fn main() {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::UserEvent(handler) => {
-                handler();
+                handler(&flutter);
             }
             Event::RedrawRequested(_window_id) => {
                 flutter.schedule_frame();

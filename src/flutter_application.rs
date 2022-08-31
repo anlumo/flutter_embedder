@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     ffi::{CStr, CString},
-    io::Read,
     mem::{size_of, MaybeUninit},
     os::{
         raw::{c_char, c_void},
@@ -9,12 +8,13 @@ use std::{
     },
     path::{Path, PathBuf},
     ptr::{null, null_mut},
-    sync::{Arc, Mutex},
+    sync::Mutex,
     time::Duration,
 };
 
 use ash::vk::Handle;
 use log::Level;
+use tokio::runtime::Runtime;
 use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
@@ -65,6 +65,10 @@ struct PointerState {
     held_buttons: u64,
 }
 
+struct SendFlutterTask(FlutterTask);
+
+unsafe impl Send for SendFlutterTask {}
+
 pub struct FlutterApplication {
     engine: FlutterEngine,
     compositor: Mutex<Compositor>,
@@ -75,10 +79,9 @@ pub struct FlutterApplication {
     aot_data: Vec<FlutterEngineAOTData>,
     mice: HashMap<DeviceId, PointerState>,
     current_mouse_id: i32,
-    event_loop_proxy: EventLoopProxy<Box<dyn FnOnce() + 'static + Send>>,
+    event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
+    runtime: Runtime,
 }
-
-unsafe impl Send for FlutterApplication {}
 
 impl FlutterApplication {
     pub fn new(
@@ -88,8 +91,8 @@ impl FlutterApplication {
         instance: Instance,
         device: Device,
         queue: Queue,
-        event_loop_proxy: EventLoopProxy<Box<dyn FnOnce() + 'static + Send>>,
-    ) -> Arc<Self> {
+        event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
+    ) -> Self {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
         }
@@ -176,7 +179,7 @@ impl FlutterApplication {
             .collect();
 
         let compositor = Mutex::new(Compositor::new());
-        let mut instance = Arc::new(Self {
+        let mut instance = Self {
             engine: null_mut(),
             compositor,
             surface,
@@ -187,7 +190,8 @@ impl FlutterApplication {
             mice: Default::default(),
             current_mouse_id: 0,
             event_loop_proxy,
-        });
+            runtime: Runtime::new().unwrap(),
+        };
         let flutter_compositor = instance
             .compositor
             .lock()
@@ -196,7 +200,7 @@ impl FlutterApplication {
 
         let task_runner = FlutterTaskRunnerDescription {
             struct_size: size_of::<FlutterTaskRunnerDescription>() as _,
-            user_data: &instance as *const Arc<Self> as _,
+            user_data: &instance as *const Self as _,
             runs_task_on_current_thread_callback: Some(Self::runs_task_on_current_thread_callback),
             post_task_callback: Some(Self::post_task_callback),
             identifier: 0,
@@ -237,7 +241,7 @@ impl FlutterApplication {
                 FLUTTER_ENGINE_VERSION.into(),
                 &config as _,
                 &args as _,
-                &instance as *const Arc<Self> as _,
+                &instance as *const Self as _,
                 &mut engine,
             )
         });
@@ -539,8 +543,7 @@ impl FlutterApplication {
         message: *const FlutterPlatformMessage,
         user_data: *mut c_void,
     ) {
-        eprintln!("AAAAAAAAAAAAAAAAAAAAAAAAAAAHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH");
-        let this = user_data as *mut Arc<Self>;
+        let this = user_data as *const Self;
         unsafe {
             log::debug!(
                 "Platform message: channel = {}, message size = {}, message: {:?}",
@@ -579,7 +582,7 @@ impl FlutterApplication {
     }
 
     extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
-        let this = unsafe { &*(user_data as *mut Arc<Self>) };
+        let this = unsafe { &*(user_data as *const Self) };
         this.device().poll(wgpu::Maintain::Wait);
         let time = Self::current_time();
         Self::unwrap_result(unsafe {
@@ -613,7 +616,7 @@ impl FlutterApplication {
         _instance: FlutterVulkanInstanceHandle,
         name: *const c_char,
     ) -> *mut c_void {
-        let this = user_data as *mut Self;
+        let this = unsafe { &*(user_data as *const Self) };
         let result = unsafe {
             (*this).instance.as_hal::<Vulkan, _, _>(|instance| {
                 instance.and_then(|instance| {
@@ -678,19 +681,20 @@ impl FlutterApplication {
         target_time_nanos: u64,
         user_data: *mut c_void,
     ) {
-        let this = user_data as *mut Arc<Self>;
-        let weak_this = Arc::downgrade(&*this);
-        tokio::spawn(async move {
+        let this = unsafe { &*(user_data as *const Self) };
+        let event_loop_proxy = this.event_loop_proxy.clone();
+        let task = SendFlutterTask(task);
+
+        this.runtime.spawn(async move {
             tokio::time::sleep(Duration::from_nanos(target_time_nanos)).await;
 
-            if let Some(this) = weak_this.upgrade() {
-                let inner_weak_this = weak_this.clone();
-                this.event_loop_proxy.send_event(Box::new(move || {
-                    if let Some(this) = inner_weak_this.upgrade() {
-                        FlutterEngineRunTask(this.engine, &task);
-                    }
-                }));
-            }
+            event_loop_proxy
+                .send_event(Box::new(move |this| unsafe {
+                    Self::unwrap_result(FlutterEngineRunTask(this.engine, &task.0));
+                    drop(task);
+                }))
+                .ok()
+                .unwrap();
         });
     }
 
