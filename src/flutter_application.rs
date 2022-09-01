@@ -686,11 +686,10 @@ impl FlutterApplication {
         user_data: *mut c_void,
     ) {
         let this = unsafe { &*(user_data as *const Self) };
-        let event_loop_proxy = this.event_loop_proxy.clone();
         let task = SendFlutterTask(task);
 
         if Self::current_time() >= target_time_nanos {
-            event_loop_proxy
+            this.event_loop_proxy
                 .send_event(Box::new(move |this| unsafe {
                     Self::unwrap_result(FlutterEngineRunTask(this.engine, &task.0));
                     drop(task);
@@ -698,9 +697,13 @@ impl FlutterApplication {
                 .ok()
                 .unwrap();
         } else {
+            let event_loop_proxy = this.event_loop_proxy.clone();
             this.runtime.spawn(async move {
-                tokio::time::sleep(Duration::from_nanos(target_time_nanos - Self::current_time())).await;
-    
+                tokio::time::sleep(Duration::from_nanos(
+                    target_time_nanos - Self::current_time(),
+                ))
+                .await;
+
                 event_loop_proxy
                     .send_event(Box::new(move |this| unsafe {
                         Self::unwrap_result(FlutterEngineRunTask(this.engine, &task.0));
