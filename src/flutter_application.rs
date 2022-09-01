@@ -521,7 +521,7 @@ impl FlutterApplication {
             });
             drop(character);
 
-            // TODO: send flutter/textinput message
+            // send flutter/textinput message
             if let Some(keyboard_client) = self.keyboard_client.get() {
                 let channel = CStr::from_bytes_with_nul(b"flutter/textinput\0").unwrap();
                 let message = TextInputClient::UpdateEditingState(
@@ -581,14 +581,6 @@ impl FlutterApplication {
     ) {
         let this = unsafe { &*(user_data as *const Self) };
         let message = unsafe { &*message };
-        unsafe {
-            log::trace!(
-                "Platform message: channel = {}, message size = {}, message: {:?}",
-                CStr::from_ptr(message.channel).to_str().unwrap(),
-                message.message_size,
-                std::slice::from_raw_parts(message.message, message.message_size as _),
-            );
-        }
         let channel = unsafe { CStr::from_ptr(message.channel) };
         if let Ok(channel) = channel.to_str() {
             if channel == "flutter/textinput" {
@@ -619,6 +611,14 @@ impl FlutterApplication {
                     )
                 });
             } else {
+                unsafe {
+                    log::debug!(
+                        "Unhandled platform message: channel = {channel}, message size = {}, message: {:?}",
+                        message.message_size,
+                        std::slice::from_raw_parts(message.message, message.message_size as _),
+                    );
+                }
+
                 Self::unwrap_result(unsafe {
                     FlutterEngineSendPlatformMessageResponse(
                         this.engine,
