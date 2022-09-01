@@ -1,6 +1,81 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "name")]
+pub(super) enum TextInputType {
+    #[serde(rename = "TextInputType.text")]
+    Text,
+    #[serde(rename = "TextInputType.multiline")]
+    Multiline,
+    #[serde(rename = "TextInputType.number")]
+    Number { signed: bool, decimal: bool },
+    #[serde(rename = "TextInputType.phone")]
+    Phone,
+    #[serde(rename = "TextInputType.datetime")]
+    Datetime,
+    #[serde(rename = "TextInputType.emailAddress")]
+    EmailAddress,
+    #[serde(rename = "TextInputType.url")]
+    Url,
+    #[serde(rename = "TextInputType.visiblePassword")]
+    VisiblePassword,
+    #[serde(rename = "TextInputType.name")]
+    Name,
+    #[serde(rename = "TextInputType.address")]
+    StreetAddress,
+    #[serde(rename = "TextInputType.none")]
+    None,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) enum BinaryType {
+    #[serde(rename = "0")]
+    Disabled,
+    #[serde(rename = "1")]
+    Enabled,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) enum TextCapitalization {
+    #[serde(rename = "TextCapitalization.words")]
+    Words,
+    #[serde(rename = "TextCapitalization.sentences")]
+    Sentences,
+    #[serde(rename = "TextCapitalization.characters")]
+    Characters,
+    #[serde(rename = "TextCapitalization.none")]
+    None,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub(super) enum Brightness {
+    #[serde(rename = "Brightness.dark")]
+    Dark,
+    #[serde(rename = "Brightness.light")]
+    Light,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct TextClientParameters {
+    input_type: TextInputType,
+    read_only: bool,
+    obscure_text: bool,
+    autocorrect: bool,
+    smart_dashes_type: BinaryType,
+    smart_quotes_type: BinaryType,
+    enable_suggestions: bool,
+    enable_interactive_selection: bool,
+    action_label: Option<String>,
+    input_action: TextInputAction,
+    text_capitalization: TextCapitalization,
+    keyboard_appearance: Brightness,
+    #[serde(rename = "enableIMEPersonalizedLearning")]
+    enable_ime_personalized_learning: bool,
+    enable_delta_model: bool,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(tag = "method", content = "args")]
 pub(super) enum TextInput {
     /// Establishes a new transaction. The arguments is
@@ -10,7 +85,7 @@ pub(super) enum TextInput {
     /// [TextInputConfiguration.toJson]. This method must be invoked before any
     /// others (except `TextInput.hide`). See [TextInput.attach].
     #[serde(rename = "TextInput.setClient")]
-    SetClient(u64, String),
+    SetClient(u64, TextClientParameters),
     /// Show the keyboard. See [TextInputConnection.show].
     #[serde(rename = "TextInput.show")]
     Show,
@@ -42,13 +117,13 @@ pub(super) enum TextAffinity {
 #[derive(Debug, Serialize, Deserialize, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct TextEditingValue {
-    text: String,
-    selection_base: Option<u64>,
-    selection_extent: Option<u64>,
-    selection_affinity: Option<TextAffinity>,
-    selection_is_directional: Option<bool>,
-    composing_base: Option<u64>,
-    composing_extent: Option<u64>,
+    pub(super) text: String,
+    pub(super) selection_base: Option<u64>,
+    pub(super) selection_extent: Option<u64>,
+    pub(super) selection_affinity: Option<TextAffinity>,
+    pub(super) selection_is_directional: Option<bool>,
+    pub(super) composing_base: Option<u64>,
+    pub(super) composing_extent: Option<u64>,
 }
 
 /// An action the user has requested the text input control to perform.
@@ -88,7 +163,6 @@ pub(super) struct TextEditingValue {
 // This class has been cloned to `flutter_driver/lib/src/common/action.dart` as `TextInputAction`,
 // and must be kept in sync.
 #[derive(Debug, Serialize, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub(super) enum TextInputAction {
     /// Logical meaning: There is no relevant input action for the current input
     /// source, e.g., [TextField].
@@ -98,6 +172,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: iOS does not have a keyboard return type of "none." It is
     /// inappropriate to choose this [TextInputAction] when running on iOS.
+    #[serde(rename = "TextInputAction.none")]
     None,
 
     /// Logical meaning: Let the OS decide which action is most appropriate.
@@ -108,6 +183,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyDefault". The title displayed in
     /// the action button is "return".
+    #[serde(rename = "TextInputAction.unspecified")]
     Unspecified,
 
     /// Logical meaning: The user is done providing input to a group of inputs
@@ -118,6 +194,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyDone". The title displayed in the
     /// action button is "Done".
+    #[serde(rename = "TextInputAction.done")]
     Done,
 
     /// Logical meaning: The user has entered some text that represents a
@@ -130,6 +207,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyGo". The title displayed in the
     /// action button is "Go".
+    #[serde(rename = "TextInputAction.go")]
     Go,
 
     /// Logical meaning: Execute a search query.
@@ -139,6 +217,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeySearch". The title displayed in the
     /// action button is "Search".
+    #[serde(rename = "TextInputAction.search")]
     Search,
 
     /// Logical meaning: Sends something that the user has composed, e.g., an
@@ -149,6 +228,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeySend". The title displayed in the
     /// action button is "Send".
+    #[serde(rename = "TextInputAction.send")]
     Send,
 
     /// Logical meaning: The user is done with the current input source and wants
@@ -161,6 +241,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyNext". The title displayed in the
     /// action button is "Next".
+    #[serde(rename = "TextInputAction.next")]
     Next,
 
     /// Logical meaning: The user wishes to return to the previous input source
@@ -173,6 +254,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: iOS does not have a keyboard return type of "previous." It is
     /// inappropriate to choose this [TextInputAction] when running on iOS.
+    #[serde(rename = "TextInputAction.previous")]
     Previous,
 
     /// Logical meaning: In iOS apps, it is common for a "Back" button and
@@ -192,6 +274,7 @@ pub(super) enum TextInputAction {
     ///
     /// The reason that this value has "Action" post-fixed to it is because
     /// "continue" is a reserved word in Dart, as well as many other languages.
+    #[serde(rename = "TextInputAction.continueAction")]
     ContinueAction,
 
     /// Logical meaning: The user wants to join something, e.g., a wireless
@@ -202,6 +285,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyJoin". The title displayed in the
     /// action button is "Join".
+    #[serde(rename = "TextInputAction.join")]
     Join,
 
     /// Logical meaning: The user wants routing options, e.g., driving directions.
@@ -211,6 +295,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyRoute". The title displayed in the
     /// action button is "Route".
+    #[serde(rename = "TextInputAction.route")]
     Route,
 
     /// Logical meaning: Initiate a call to emergency services.
@@ -220,6 +305,7 @@ pub(super) enum TextInputAction {
     ///
     /// iOS: Corresponds to iOS's "UIReturnKeyEmergencyCall". The title displayed
     /// in the action button is "Emergency Call".
+    #[serde(rename = "TextInputAction.emergencyCall")]
     EmergencyCall,
 
     /// Logical meaning: Insert a newline character in the focused text input,
@@ -237,6 +323,7 @@ pub(super) enum TextInputAction {
     /// understand the various IME actions on Android and return keys on iOS.
     /// Thus, [TextInputAction.newline] is a convenience term that alleviates the
     /// need to understand the underlying platforms to achieve this common behavior.
+    #[serde(rename = "TextInputAction.newline")]
     Newline,
 }
 

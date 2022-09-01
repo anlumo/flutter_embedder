@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
@@ -26,6 +27,7 @@ use winit::{
 
 use crate::{
     compositor::Compositor,
+    flutter_application::text_input::{TextEditingValue, TextInput, TextInputClient},
     flutter_bindings::{
         FlutterCustomTaskRunners, FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
         FlutterEngineGetCurrentTime, FlutterEngineInitialize, FlutterEngineOnVsync,
@@ -83,6 +85,7 @@ pub struct FlutterApplication {
     event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
     runtime: Runtime,
     main_thread: ThreadId,
+    keyboard_client: Cell<Option<u64>>,
 }
 
 impl FlutterApplication {
@@ -194,6 +197,7 @@ impl FlutterApplication {
             event_loop_proxy,
             runtime: Runtime::new().unwrap(),
             main_thread: std::thread::current().id(),
+            keyboard_client: Cell::new(None),
         };
         let flutter_compositor = instance
             .compositor
@@ -518,6 +522,35 @@ impl FlutterApplication {
             drop(character);
 
             // TODO: send flutter/textinput message
+            if let Some(keyboard_client) = self.keyboard_client.get() {
+                let channel = CStr::from_bytes_with_nul(b"flutter/textinput\0").unwrap();
+                let message = TextInputClient::UpdateEditingState(
+                    keyboard_client,
+                    TextEditingValue {
+                        text: event.text.unwrap_or_default().to_owned(),
+                        selection_base: None,
+                        selection_extent: None,
+                        selection_affinity: None,
+                        selection_is_directional: None,
+                        composing_base: None,
+                        composing_extent: None,
+                    },
+                );
+                let message_json = serde_json::to_vec(&message).unwrap();
+                Self::unwrap_result(unsafe {
+                    FlutterEngineSendPlatformMessage(
+                        self.engine,
+                        &FlutterPlatformMessage {
+                            struct_size: size_of::<FlutterPlatformMessage>() as _,
+                            channel: channel.as_ptr(),
+                            message: message_json.as_ptr(),
+                            message_size: message_json.len() as _,
+                            response_handle: null(),
+                        },
+                    )
+                });
+                drop(channel);
+            }
         }
     }
 
@@ -546,23 +579,65 @@ impl FlutterApplication {
         message: *const FlutterPlatformMessage,
         user_data: *mut c_void,
     ) {
-        let this = user_data as *const Self;
+        let this = unsafe { &*(user_data as *const Self) };
+        let message = unsafe { &*message };
         unsafe {
-            log::debug!(
+            log::trace!(
                 "Platform message: channel = {}, message size = {}, message: {:?}",
-                CStr::from_ptr((*message).channel).to_str().unwrap(),
-                (*message).message_size,
-                std::slice::from_raw_parts((*message).message, (*message).message_size as _),
+                CStr::from_ptr(message.channel).to_str().unwrap(),
+                message.message_size,
+                std::slice::from_raw_parts(message.message, message.message_size as _),
             );
         }
-        Self::unwrap_result(unsafe {
-            FlutterEngineSendPlatformMessageResponse(
-                (*this).engine,
-                (*message).response_handle,
-                null(),
-                0,
-            )
-        });
+        let channel = unsafe { CStr::from_ptr(message.channel) };
+        if let Ok(channel) = channel.to_str() {
+            if channel == "flutter/textinput" {
+                let data = unsafe {
+                    std::slice::from_raw_parts(message.message, message.message_size as _)
+                };
+                if let Ok(text_input) = serde_json::from_slice::<TextInput>(data) {
+                    match text_input {
+                        TextInput::SetClient(client_id, _parameters) => {
+                            this.keyboard_client.set(Some(client_id));
+                        }
+                        TextInput::ClearClient => {
+                            this.keyboard_client.set(None);
+                        }
+                        other => {
+                            log::warn!("Unhandled TextInput message: {:#?}", other);
+                        }
+                    }
+                } else {
+                    log::debug!("Unknown textinput message: {:?}", std::str::from_utf8(data));
+                }
+                Self::unwrap_result(unsafe {
+                    FlutterEngineSendPlatformMessageResponse(
+                        this.engine,
+                        message.response_handle,
+                        null(),
+                        0,
+                    )
+                });
+            } else {
+                Self::unwrap_result(unsafe {
+                    FlutterEngineSendPlatformMessageResponse(
+                        this.engine,
+                        message.response_handle,
+                        null(),
+                        0,
+                    )
+                });
+            }
+        } else {
+            Self::unwrap_result(unsafe {
+                FlutterEngineSendPlatformMessageResponse(
+                    this.engine,
+                    message.response_handle,
+                    null(),
+                    0,
+                )
+            });
+        }
     }
 
     extern "C" fn root_isolate_create(_user_data: *mut c_void) {
