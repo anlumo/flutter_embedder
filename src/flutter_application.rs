@@ -9,6 +9,7 @@ use std::{
     path::{Path, PathBuf},
     ptr::{null, null_mut},
     sync::Mutex,
+    thread::ThreadId,
     time::Duration,
 };
 
@@ -81,6 +82,7 @@ pub struct FlutterApplication {
     current_mouse_id: i32,
     event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
     runtime: Runtime,
+    main_thread: ThreadId,
 }
 
 impl FlutterApplication {
@@ -191,6 +193,7 @@ impl FlutterApplication {
             current_mouse_id: 0,
             event_loop_proxy,
             runtime: Runtime::new().unwrap(),
+            main_thread: std::thread::current().id(),
         };
         let flutter_compositor = instance
             .compositor
@@ -672,8 +675,9 @@ impl FlutterApplication {
         // Not used if a FlutterCompositor is supplied in FlutterProjectArgs.
     }
 
-    extern "C" fn runs_task_on_current_thread_callback(_user_data: *mut c_void) -> bool {
-        true // we're single-threaded for now
+    extern "C" fn runs_task_on_current_thread_callback(user_data: *mut c_void) -> bool {
+        let this = unsafe { &*(user_data as *const Self) };
+        this.main_thread == std::thread::current().id()
     }
 
     extern "C" fn post_task_callback(
@@ -685,9 +689,7 @@ impl FlutterApplication {
         let event_loop_proxy = this.event_loop_proxy.clone();
         let task = SendFlutterTask(task);
 
-        this.runtime.spawn(async move {
-            tokio::time::sleep(Duration::from_nanos(target_time_nanos)).await;
-
+        if Self::current_time() >= target_time_nanos {
             event_loop_proxy
                 .send_event(Box::new(move |this| unsafe {
                     Self::unwrap_result(FlutterEngineRunTask(this.engine, &task.0));
@@ -695,7 +697,19 @@ impl FlutterApplication {
                 }))
                 .ok()
                 .unwrap();
-        });
+        } else {
+            this.runtime.spawn(async move {
+                tokio::time::sleep(Duration::from_nanos(target_time_nanos - Self::current_time())).await;
+    
+                event_loop_proxy
+                    .send_event(Box::new(move |this| unsafe {
+                        Self::unwrap_result(FlutterEngineRunTask(this.engine, &task.0));
+                        drop(task);
+                    }))
+                    .ok()
+                    .unwrap();
+            });
+        }
     }
 
     fn unwrap_result(result: FlutterEngineResult) {
