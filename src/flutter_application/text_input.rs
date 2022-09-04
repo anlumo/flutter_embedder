@@ -58,21 +58,21 @@ pub(super) enum Brightness {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(super) struct TextClientParameters {
-    input_type: TextInputType,
-    read_only: bool,
-    obscure_text: bool,
-    autocorrect: bool,
-    smart_dashes_type: BinaryType,
-    smart_quotes_type: BinaryType,
-    enable_suggestions: bool,
-    enable_interactive_selection: bool,
-    action_label: Option<String>,
-    input_action: TextInputAction,
-    text_capitalization: TextCapitalization,
-    keyboard_appearance: Brightness,
+    pub(super) input_type: TextInputType,
+    pub(super) read_only: bool,
+    pub(super) obscure_text: bool,
+    pub(super) autocorrect: bool,
+    pub(super) smart_dashes_type: BinaryType,
+    pub(super) smart_quotes_type: BinaryType,
+    pub(super) enable_suggestions: bool,
+    pub(super) enable_interactive_selection: bool,
+    pub(super) action_label: Option<String>,
+    pub(super) input_action: TextInputAction,
+    pub(super) text_capitalization: TextCapitalization,
+    pub(super) keyboard_appearance: Brightness,
     #[serde(rename = "enableIMEPersonalizedLearning")]
-    enable_ime_personalized_learning: bool,
-    enable_delta_model: bool,
+    pub(super) enable_ime_personalized_learning: bool,
+    pub(super) enable_delta_model: bool,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -162,7 +162,7 @@ pub(super) struct TextEditingValue {
 //
 // This class has been cloned to `flutter_driver/lib/src/common/action.dart` as `TextInputAction`,
 // and must be kept in sync.
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub(super) enum TextInputAction {
     /// Logical meaning: There is no relevant input action for the current input
     /// source, e.g., [TextField].

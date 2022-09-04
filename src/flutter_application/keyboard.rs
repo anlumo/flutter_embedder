@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     ffi::CString,
     mem::size_of,
     ptr::{null, null_mut},
@@ -13,9 +12,7 @@ use winit::{
 
 use crate::{
     action_key::ActionKey,
-    flutter_application::{
-        text_input::TextInputClient, FlutterApplication, FLUTTER_TEXTINPUT_CHANNEL,
-    },
+    flutter_application::{text_input::TextInputClient, FlutterApplication},
     flutter_bindings::{
         FlutterEngine, FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessage,
         FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
@@ -26,22 +23,29 @@ use crate::{
     keyboard_physical_key_map::translate_physical_key,
 };
 
-use super::text_input::{TextEditingValue, TextInput};
+use super::{
+    text_input::{TextEditingValue, TextInput, TextInputAction},
+    FLUTTER_TEXTINPUT_CHANNEL,
+};
 
 pub struct Keyboard {
-    client: Cell<Option<u64>>,
+    client: Option<u64>,
     modifiers: ModifiersState,
     editing_state: TextEditingValue,
     clipboard: Clipboard,
+    input_action: TextInputAction,
+    channel: CString,
 }
 
 impl Default for Keyboard {
     fn default() -> Self {
         Self {
-            client: Cell::new(None),
+            client: None,
             modifiers: Default::default(),
             editing_state: Default::default(),
             clipboard: Clipboard::new().unwrap(),
+            input_action: TextInputAction::Unspecified,
+            channel: CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap(),
         }
     }
 }
@@ -181,7 +185,7 @@ impl Keyboard {
 
             log::debug!(
                 "Updating editing state for keyboard client {:?}",
-                self.client.get()
+                self.client
             );
 
             if event.state == ElementState::Pressed
@@ -316,6 +320,25 @@ impl Keyboard {
                                 self.insert_text(&text);
                             }
                         }
+                        Key::Enter => {
+                            if let Some(client) = self.client {
+                                let message =
+                                    TextInputClient::PerformAction(client, self.input_action);
+                                let message_json = serde_json::to_vec(&message).unwrap();
+                                FlutterApplication::unwrap_result(unsafe {
+                                    FlutterEngineSendPlatformMessage(
+                                        engine,
+                                        &FlutterPlatformMessage {
+                                            struct_size: size_of::<FlutterPlatformMessage>() as _,
+                                            channel: self.channel.as_ptr(),
+                                            message: message_json.as_ptr(),
+                                            message_size: message_json.len() as _,
+                                            response_handle: null(),
+                                        },
+                                    )
+                                });
+                            }
+                        }
                         _ if self.modifiers.control_key() || self.modifiers.super_key() => {
                             // ignore
                         }
@@ -332,8 +355,7 @@ impl Keyboard {
     }
 
     fn update_editing_state(&self, engine: FlutterEngine) {
-        if let Some(client) = self.client.get() {
-            let channel = CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap();
+        if let Some(client) = self.client {
             let message = TextInputClient::UpdateEditingState(client, self.editing_state.clone());
             log::info!("update_editing_state message: {message:?}");
             let message_json = serde_json::to_vec(&message).unwrap();
@@ -342,25 +364,25 @@ impl Keyboard {
                     engine,
                     &FlutterPlatformMessage {
                         struct_size: size_of::<FlutterPlatformMessage>() as _,
-                        channel: channel.as_ptr(),
+                        channel: self.channel.as_ptr(),
                         message: message_json.as_ptr(),
                         message_size: message_json.len() as _,
                         response_handle: null(),
                     },
                 )
             });
-            drop(channel);
         }
     }
 
     pub(super) fn handle_textinput_message(&mut self, textinput: TextInput) {
         match textinput {
-            TextInput::SetClient(client_id, _parameters) => {
-                self.client.set(Some(client_id));
-                log::debug!("Setting keyboard client to {:?}", self.client.get());
+            TextInput::SetClient(client_id, parameters) => {
+                self.client = Some(client_id);
+                self.input_action = parameters.input_action;
+                log::debug!("Setting keyboard client to {:?}", client_id);
             }
             TextInput::ClearClient => {
-                self.client.set(None);
+                self.client = None;
                 log::debug!("Setting keyboard client to None");
             }
             TextInput::SetEditingState(state) => {
