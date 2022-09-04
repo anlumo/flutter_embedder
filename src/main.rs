@@ -129,7 +129,7 @@ fn main() -> Result<(), std::io::Error> {
             *control_flow = ControlFlow::Wait;
             match event {
                 Event::UserEvent(handler) => {
-                    handler(&app);
+                    handler(&mut app);
                 }
                 Event::RedrawRequested(_window_id) => {
                     app.schedule_frame();
@@ -171,6 +171,9 @@ fn main() -> Result<(), std::io::Error> {
                         ..
                     } => {
                         app.mouse_wheel(device_id, delta, phase);
+                    }
+                    WindowEvent::ModifiersChanged(state) => {
+                        app.modifiers_changed(state);
                     }
                     WindowEvent::KeyboardInput {
                         event,

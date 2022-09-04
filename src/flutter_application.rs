@@ -23,6 +23,7 @@ use winit::{
     dpi::PhysicalPosition,
     event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
     event_loop::EventLoopProxy,
+    keyboard::{Key, ModifiersState},
 };
 
 use crate::{
@@ -74,7 +75,7 @@ unsafe impl Send for SendFlutterTask {}
 struct SendFlutterPlatformMessageResponseHandle(*const FlutterPlatformMessageResponseHandle);
 unsafe impl Send for SendFlutterPlatformMessageResponseHandle {}
 
-pub type FlutterApplicationCallback = Box<dyn FnOnce(&FlutterApplication) + 'static + Send>;
+pub type FlutterApplicationCallback = Box<dyn FnOnce(&mut FlutterApplication) + 'static + Send>;
 
 struct FlutterApplicationUserData {
     event_loop_proxy: Mutex<EventLoopProxy<FlutterApplicationCallback>>,
@@ -95,6 +96,7 @@ pub struct FlutterApplication {
     current_mouse_id: i32,
     runtime: Arc<Runtime>,
     keyboard_client: Cell<Option<u64>>,
+    keyboard_modifiers: ModifiersState,
     editing_state: TextEditingValue,
     user_data: Box<FlutterApplicationUserData>,
 }
@@ -108,7 +110,7 @@ impl FlutterApplication {
         instance: Arc<Instance>,
         device: Device,
         queue: Queue,
-        event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
+        event_loop_proxy: EventLoopProxy<FlutterApplicationCallback>,
     ) -> FlutterApplication {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
@@ -214,6 +216,7 @@ impl FlutterApplication {
             current_mouse_id: 0,
             runtime,
             keyboard_client: Cell::new(None),
+            keyboard_modifiers: Default::default(),
             editing_state: Default::default(),
             user_data,
         };
@@ -457,6 +460,35 @@ impl FlutterApplication {
         }
     }
 
+    pub fn modifiers_changed(&mut self, state: ModifiersState) {
+        self.keyboard_modifiers = state;
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    fn action_key(state: ModifiersState) -> bool {
+        state.control_key()
+    }
+
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    fn action_key(state: ModifiersState) -> bool {
+        state.meta_key()
+    }
+
+    fn move_home(&mut self) {
+        self.editing_state.selection_base = Some(0);
+        if !self.keyboard_modifiers.shift_key() {
+            self.editing_state.selection_extent = Some(0);
+        }
+    }
+
+    fn move_end(&mut self) {
+        let len = self.editing_state.text.chars().count();
+        self.editing_state.selection_extent = Some(len as _);
+        if !self.keyboard_modifiers.shift_key() {
+            self.editing_state.selection_base = self.editing_state.selection_extent;
+        }
+    }
+
     pub fn key_event(&mut self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
         log::debug!("key_event: self = {:p}", self);
 
@@ -560,15 +592,125 @@ impl FlutterApplication {
                 self.keyboard_client.get()
             );
 
-            if event.state == ElementState::Pressed {
+            if event.state == ElementState::Pressed
+                && self
+                    .editing_state
+                    .selection_base
+                    .map(|val| val >= 0)
+                    .unwrap_or(false)
+                && self
+                    .editing_state
+                    .selection_extent
+                    .map(|val| val >= 0)
+                    .unwrap_or(false)
+            {
                 // send flutter/textinput message
                 {
-                    if let Some(text) = event.text {
-                        self.editing_state.text.push_str(text);
-                        self.editing_state.selection_base =
-                            Some(self.editing_state.text.len() as _);
-                        self.editing_state.selection_extent =
-                            Some(self.editing_state.text.len() as _);
+                    let editing_state = &mut self.editing_state;
+                    let len = editing_state.text.chars().count();
+                    let selection = editing_state.selection_base.unwrap_or(0) as usize
+                        ..(editing_state.selection_extent.unwrap_or(0) as usize);
+                    match event.logical_key {
+                        #[cfg(any(target_os = "macos", target_os = "ios"))]
+                        Key::ArrowLeft if self.keyboard_modifiers.meta_key() => {
+                            self.move_home();
+                        }
+                        #[cfg(any(target_os = "macos", target_os = "ios"))]
+                        Key::ArrowRight if self.keyboard_modifiers.meta_key() => {
+                            self.move_end();
+                        }
+                        Key::ArrowLeft => {
+                            if selection.start > 0 {
+                                if !self.keyboard_modifiers.shift_key()
+                                    && selection.start != selection.end
+                                {
+                                    editing_state.selection_extent = editing_state.selection_base;
+                                } else {
+                                    editing_state.selection_base = Some((selection.start - 1) as _);
+                                    if !self.keyboard_modifiers.shift_key() {
+                                        editing_state.selection_extent =
+                                            editing_state.selection_base;
+                                    }
+                                }
+                            } else if !self.keyboard_modifiers.shift_key()
+                                && selection.start != selection.end
+                            {
+                                editing_state.selection_extent = editing_state.selection_base;
+                            }
+                        }
+                        Key::ArrowRight => {
+                            if selection.end < len {
+                                if !self.keyboard_modifiers.shift_key()
+                                    && selection.start != selection.end
+                                {
+                                    editing_state.selection_base = editing_state.selection_extent;
+                                } else {
+                                    editing_state.selection_extent = Some((selection.end + 1) as _);
+                                    if !self.keyboard_modifiers.shift_key() {
+                                        editing_state.selection_base =
+                                            editing_state.selection_extent;
+                                    }
+                                }
+                            } else if !self.keyboard_modifiers.shift_key()
+                                && selection.start != selection.end
+                            {
+                                editing_state.selection_base = editing_state.selection_extent;
+                            }
+                        }
+                        Key::ArrowUp | Key::Home => {
+                            self.move_home();
+                        }
+                        Key::ArrowDown | Key::End => {
+                            self.move_end();
+                        }
+                        Key::Backspace => {
+                            if selection.start == selection.end {
+                                if selection.start > 0 {
+                                    editing_state.text.remove(selection.start - 1);
+                                }
+                                editing_state.selection_base = Some((selection.start - 1) as _);
+                            } else {
+                                editing_state.text.replace_range(selection.clone(), "");
+                                editing_state.selection_extent = editing_state.selection_base;
+                            }
+                        }
+                        Key::Delete => {
+                            if selection.start == selection.end {
+                                if selection.start < len {
+                                    editing_state.text.remove(selection.start);
+                                }
+                            } else {
+                                editing_state.text.replace_range(selection.clone(), "");
+                                editing_state.selection_extent = editing_state.selection_base;
+                            }
+                        }
+                        Key::Character("a") if Self::action_key(self.keyboard_modifiers) => {
+                            editing_state.selection_base = Some(0);
+                            editing_state.selection_extent = Some(len as _);
+                        }
+                        #[cfg(any(target_os = "macos", target_os = "ios"))]
+                        Key::Character("a") if self.keyboard_modifiers.control_key() => {
+                            self.move_home();
+                        }
+                        #[cfg(any(target_os = "macos", target_os = "ios"))]
+                        Key::Character("e") if self.keyboard_modifiers.control_key() => {
+                            self.move_end();
+                        }
+                        // TODO: cut/copy/paste
+                        _ => {
+                            if let Some(text) = event.text {
+                                if len > 0 && selection.start < len {
+                                    editing_state.text.replace_range(selection, text);
+                                } else {
+                                    editing_state.text.push_str(text);
+                                }
+                                editing_state.selection_base = Some(
+                                    editing_state.selection_base.unwrap()
+                                        + (text.chars().count() as i64),
+                                );
+                                editing_state.selection_extent = editing_state.selection_base;
+                            }
+                        }
                     }
                 }
                 self.update_editing_state();
@@ -649,6 +791,9 @@ impl FlutterApplication {
                             TextInput::ClearClient => {
                                 this.keyboard_client.set(None);
                                 log::debug!("Setting keyboard client to None");
+                            }
+                            TextInput::SetEditingState(state) => {
+                                this.editing_state = state;
                             }
                             other => {
                                 log::warn!("Unhandled TextInput message: {:#?}", other);

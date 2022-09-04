@@ -94,7 +94,7 @@ pub(super) enum TextInput {
     /// seven keys, as obtained from [TextEditingValue.toJSON]. See
     /// [TextInputConnection.setEditingState].
     #[serde(rename = "TextInput.setEditingState")]
-    SetEditingState(String),
+    SetEditingState(TextEditingValue),
     /// End the current transaction. The next method
     /// called must be `TextInput.setClient` (or `TextInput.hide`). See
     /// [TextInputConnection.close].
@@ -118,12 +118,12 @@ pub(super) enum TextAffinity {
 #[serde(rename_all = "camelCase")]
 pub(super) struct TextEditingValue {
     pub(super) text: String,
-    pub(super) selection_base: Option<u64>,
-    pub(super) selection_extent: Option<u64>,
+    pub(super) selection_base: Option<i64>,
+    pub(super) selection_extent: Option<i64>,
     pub(super) selection_affinity: Option<TextAffinity>,
     pub(super) selection_is_directional: Option<bool>,
-    pub(super) composing_base: Option<u64>,
-    pub(super) composing_extent: Option<u64>,
+    pub(super) composing_base: Option<i64>,
+    pub(super) composing_extent: Option<i64>,
 }
 
 /// An action the user has requested the text input control to perform.
