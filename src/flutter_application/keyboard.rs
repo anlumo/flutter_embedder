@@ -321,22 +321,13 @@ impl Keyboard {
                             }
                         }
                         Key::Enter => {
-                            if let Some(client) = self.client {
-                                let message =
-                                    TextInputClient::PerformAction(client, self.input_action);
-                                let message_json = serde_json::to_vec(&message).unwrap();
-                                FlutterApplication::unwrap_result(unsafe {
-                                    FlutterEngineSendPlatformMessage(
-                                        engine,
-                                        &FlutterPlatformMessage {
-                                            struct_size: size_of::<FlutterPlatformMessage>() as _,
-                                            channel: self.channel.as_ptr(),
-                                            message: message_json.as_ptr(),
-                                            message_size: message_json.len() as _,
-                                            response_handle: null(),
-                                        },
-                                    )
-                                });
+                            self.send_action(engine, self.input_action);
+                        }
+                        Key::Tab => {
+                            if self.modifiers.shift_key() {
+                                self.send_action(engine, TextInputAction::Previous);
+                            } else {
+                                self.send_action(engine, TextInputAction::Next);
                             }
                         }
                         _ if self.modifiers.control_key() || self.modifiers.super_key() => {
@@ -358,6 +349,25 @@ impl Keyboard {
         if let Some(client) = self.client {
             let message = TextInputClient::UpdateEditingState(client, self.editing_state.clone());
             log::info!("update_editing_state message: {message:?}");
+            let message_json = serde_json::to_vec(&message).unwrap();
+            FlutterApplication::unwrap_result(unsafe {
+                FlutterEngineSendPlatformMessage(
+                    engine,
+                    &FlutterPlatformMessage {
+                        struct_size: size_of::<FlutterPlatformMessage>() as _,
+                        channel: self.channel.as_ptr(),
+                        message: message_json.as_ptr(),
+                        message_size: message_json.len() as _,
+                        response_handle: null(),
+                    },
+                )
+            });
+        }
+    }
+
+    fn send_action(&self, engine: FlutterEngine, action: TextInputAction) {
+        if let Some(client) = self.client {
+            let message = TextInputClient::PerformAction(client, action);
             let message_json = serde_json::to_vec(&message).unwrap();
             FlutterApplication::unwrap_result(unsafe {
                 FlutterEngineSendPlatformMessage(
