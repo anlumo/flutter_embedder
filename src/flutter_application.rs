@@ -14,6 +14,7 @@ use std::{
     time::Duration,
 };
 
+use arboard::Clipboard;
 use ash::vk::Handle;
 use log::Level;
 use tokio::runtime::Runtime;
@@ -27,6 +28,7 @@ use winit::{
 };
 
 use crate::{
+    action_key::ActionKey,
     compositor::Compositor,
     flutter_application::text_input::{TextEditingValue, TextInput, TextInputClient},
     flutter_bindings::{
@@ -98,6 +100,7 @@ pub struct FlutterApplication {
     keyboard_client: Cell<Option<u64>>,
     keyboard_modifiers: ModifiersState,
     editing_state: TextEditingValue,
+    clipboard: Clipboard,
     user_data: Box<FlutterApplicationUserData>,
 }
 
@@ -218,6 +221,7 @@ impl FlutterApplication {
             keyboard_client: Cell::new(None),
             keyboard_modifiers: Default::default(),
             editing_state: Default::default(),
+            clipboard: Clipboard::new().unwrap(),
             user_data,
         };
 
@@ -464,16 +468,6 @@ impl FlutterApplication {
         self.keyboard_modifiers = state;
     }
 
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
-    fn action_key(state: ModifiersState) -> bool {
-        state.control_key()
-    }
-
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
-    fn action_key(state: ModifiersState) -> bool {
-        state.meta_key()
-    }
-
     fn move_home(&mut self) {
         self.editing_state.selection_base = Some(0);
         if !self.keyboard_modifiers.shift_key() {
@@ -487,6 +481,23 @@ impl FlutterApplication {
         if !self.keyboard_modifiers.shift_key() {
             self.editing_state.selection_base = self.editing_state.selection_extent;
         }
+    }
+
+    fn insert_text(&mut self, text: &str) {
+        let editing_state = &mut self.editing_state;
+        let len = editing_state.text.chars().count();
+        let selection_base = editing_state.selection_base.unwrap_or(0) as usize;
+        let selection_extent = editing_state.selection_extent.unwrap_or(0) as usize;
+        let selection = selection_base.min(selection_extent)..selection_base.max(selection_extent);
+
+        if len > 0 && selection.start < len {
+            editing_state.text.replace_range(selection.clone(), text);
+            editing_state.selection_base = Some((selection.start + text.chars().count()) as _);
+        } else {
+            editing_state.text.push_str(text);
+            editing_state.selection_base = Some(editing_state.text.chars().count() as _);
+        }
+        editing_state.selection_extent = editing_state.selection_base;
     }
 
     pub fn key_event(&mut self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
@@ -608,8 +619,10 @@ impl FlutterApplication {
                 {
                     let editing_state = &mut self.editing_state;
                     let len = editing_state.text.chars().count();
-                    let selection = editing_state.selection_base.unwrap_or(0) as usize
-                        ..(editing_state.selection_extent.unwrap_or(0) as usize);
+                    let selection_base = editing_state.selection_base.unwrap_or(0) as usize;
+                    let selection_extent = editing_state.selection_extent.unwrap_or(0) as usize;
+                    let selection =
+                        selection_base.min(selection_extent)..selection_base.max(selection_extent);
                     match event.logical_key {
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
                         Key::ArrowLeft if self.keyboard_modifiers.meta_key() => {
@@ -684,7 +697,7 @@ impl FlutterApplication {
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
-                        Key::Character("a") if Self::action_key(self.keyboard_modifiers) => {
+                        Key::Character("a") if self.keyboard_modifiers.action_key() => {
                             editing_state.selection_base = Some(0);
                             editing_state.selection_extent = Some(len as _);
                         }
@@ -696,19 +709,43 @@ impl FlutterApplication {
                         Key::Character("e") if self.keyboard_modifiers.control_key() => {
                             self.move_end();
                         }
-                        // TODO: cut/copy/paste
+                        Key::Character("x") if self.keyboard_modifiers.action_key() => {
+                            if selection.start != selection.end {
+                                let text = editing_state
+                                    .text
+                                    .chars()
+                                    .skip(selection.start)
+                                    .take(selection.end - selection.start)
+                                    .collect();
+                                editing_state.text.replace_range(selection.clone(), "");
+                                editing_state.selection_extent = editing_state.selection_base;
+                                self.clipboard.set_text(text).unwrap();
+                            }
+                        }
+                        Key::Character("c") if self.keyboard_modifiers.action_key() => {
+                            if selection.start != selection.end {
+                                let text = editing_state
+                                    .text
+                                    .chars()
+                                    .skip(selection.start)
+                                    .take(selection.end - selection.start)
+                                    .collect();
+                                self.clipboard.set_text(text).unwrap();
+                            }
+                        }
+                        Key::Character("v") if self.keyboard_modifiers.action_key() => {
+                            if let Ok(text) = self.clipboard.get_text() {
+                                self.insert_text(&text);
+                            }
+                        }
+                        _ if self.keyboard_modifiers.control_key()
+                            || self.keyboard_modifiers.super_key() =>
+                        {
+                            // ignore
+                        }
                         _ => {
                             if let Some(text) = event.text {
-                                if len > 0 && selection.start < len {
-                                    editing_state.text.replace_range(selection, text);
-                                } else {
-                                    editing_state.text.push_str(text);
-                                }
-                                editing_state.selection_base = Some(
-                                    editing_state.selection_base.unwrap()
-                                        + (text.chars().count() as i64),
-                                );
-                                editing_state.selection_extent = editing_state.selection_base;
+                                self.insert_text(text);
                             }
                         }
                     }
@@ -793,6 +830,7 @@ impl FlutterApplication {
                                 log::debug!("Setting keyboard client to None");
                             }
                             TextInput::SetEditingState(state) => {
+                                log::debug!("set editing state: {:#?}", state);
                                 this.editing_state = state;
                             }
                             other => {

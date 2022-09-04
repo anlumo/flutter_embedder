@@ -18,6 +18,7 @@ use winit::{
 mod flutter_application;
 use flutter_application::{FlutterApplication, FlutterApplicationCallback};
 
+mod action_key;
 mod compositor;
 mod keyboard_logical_key_map;
 mod keyboard_physical_key_map;
