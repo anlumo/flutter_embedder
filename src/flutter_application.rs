@@ -9,7 +9,7 @@ use std::{
     },
     path::{Path, PathBuf},
     ptr::{null, null_mut},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, Mutex},
     thread::ThreadId,
     time::Duration,
 };
@@ -95,12 +95,13 @@ pub struct FlutterApplication {
     current_mouse_id: i32,
     runtime: Arc<Runtime>,
     keyboard_client: Cell<Option<u64>>,
-    editing_state: RwLock<TextEditingValue>,
+    editing_state: TextEditingValue,
     user_data: Box<FlutterApplicationUserData>,
 }
 
 impl FlutterApplication {
     pub fn new(
+        runtime: Arc<Runtime>,
         asset_bundle_path: &Path,
         flutter_flags: Vec<String>,
         surface: Surface,
@@ -194,7 +195,6 @@ impl FlutterApplication {
             .map(|arg| arg.as_bytes().as_ptr() as _)
             .collect();
 
-        let runtime = Arc::new(Runtime::new().unwrap());
         let user_data = Box::new(FlutterApplicationUserData {
             event_loop_proxy: Mutex::new(event_loop_proxy),
             instance: instance.clone(),
@@ -214,7 +214,7 @@ impl FlutterApplication {
             current_mouse_id: 0,
             runtime,
             keyboard_client: Cell::new(None),
-            editing_state: RwLock::default(),
+            editing_state: Default::default(),
             user_data,
         };
 
@@ -457,7 +457,7 @@ impl FlutterApplication {
         }
     }
 
-    pub fn key_event(&self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
+    pub fn key_event(&mut self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
         log::debug!("key_event: self = {:p}", self);
 
         log::debug!(
@@ -560,26 +560,27 @@ impl FlutterApplication {
                 self.keyboard_client.get()
             );
 
-            // send flutter/textinput message
-            {
-                if let Some(text) = event.text {
-                    let mut editing_state = self.editing_state.write().unwrap();
-                    editing_state.text.push_str(text);
-                    editing_state.selection_base = Some(editing_state.text.len() as _);
-                    editing_state.selection_extent = Some(editing_state.text.len() as _);
+            if event.state == ElementState::Pressed {
+                // send flutter/textinput message
+                {
+                    if let Some(text) = event.text {
+                        self.editing_state.text.push_str(text);
+                        self.editing_state.selection_base =
+                            Some(self.editing_state.text.len() as _);
+                        self.editing_state.selection_extent =
+                            Some(self.editing_state.text.len() as _);
+                    }
                 }
+                self.update_editing_state();
             }
-            self.update_editing_state();
         }
     }
 
     fn update_editing_state(&self) {
         if let Some(keyboard_client) = self.keyboard_client.get() {
             let channel = CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap();
-            let message = TextInputClient::UpdateEditingState(
-                keyboard_client,
-                self.editing_state.read().unwrap().clone(),
-            );
+            let message =
+                TextInputClient::UpdateEditingState(keyboard_client, self.editing_state.clone());
             log::info!("update_editing_state message: {message:?}");
             let message_json = serde_json::to_vec(&message).unwrap();
             Self::unwrap_result(unsafe {

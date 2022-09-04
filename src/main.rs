@@ -3,6 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
+use tokio::runtime::Runtime;
 use wgpu::{
     Backends, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode,
     RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages,
@@ -42,8 +43,7 @@ struct Args {
     pub flutter_flags: Vec<String>,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() -> Result<(), std::io::Error> {
     env_logger::init();
     let args = Args::parse();
 
@@ -56,129 +56,136 @@ async fn main() {
         .unwrap();
     // window.set_outer_position(PhysicalPosition::new(100, 100));
 
-    let instance = Instance::new(Backends::VULKAN);
-    let surface = unsafe { instance.create_surface(&window) };
-    let adapter = instance
-        .request_adapter(&RequestAdapterOptions {
-            power_preference: PowerPreference::default(),
-            compatible_surface: Some(&surface),
-            force_fallback_adapter: false,
-        })
-        .await
-        .unwrap();
+    let rt = Arc::new(Runtime::new()?);
+    let inner_rt = rt.clone();
 
-    let (device, queue) = adapter
-        .request_device(
-            &DeviceDescriptor {
-                label: None,
-                features: Features::CLEAR_TEXTURE,
-                limits: Limits::downlevel_defaults(),
+    rt.block_on(async move {
+        let instance = Instance::new(Backends::VULKAN);
+        let surface = unsafe { instance.create_surface(&window) };
+        let adapter = instance
+            .request_adapter(&RequestAdapterOptions {
+                power_preference: PowerPreference::default(),
+                compatible_surface: Some(&surface),
+                force_fallback_adapter: false,
+            })
+            .await
+            .unwrap();
+
+        let (device, queue) = adapter
+            .request_device(
+                &DeviceDescriptor {
+                    label: None,
+                    features: Features::CLEAR_TEXTURE,
+                    limits: Limits::downlevel_defaults(),
+                },
+                None,
+            )
+            .await
+            .expect("Failed to create device");
+
+        let size = window.inner_size();
+
+        log::debug!(
+            "Supported formats: {:?}",
+            surface.get_supported_formats(&adapter)
+        );
+        let formats = surface.get_supported_formats(&adapter);
+        let format = formats
+            .into_iter()
+            .find(|&format| format == TextureFormat::Bgra8Unorm)
+            .expect("Adapter doesn't support BGRA8 render buffer.");
+
+        surface.configure(
+            &device,
+            &SurfaceConfiguration {
+                usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_DST,
+                format,
+                width: size.width,
+                height: size.height,
+                present_mode: PresentMode::Fifo,
             },
-            None,
-        )
-        .await
-        .expect("Failed to create device");
+        );
 
-    let size = window.inner_size();
+        let mut app = FlutterApplication::new(
+            inner_rt,
+            &args.asset_bundle_path,
+            args.flutter_flags,
+            surface,
+            Arc::new(instance),
+            device,
+            queue,
+            event_loop.create_proxy(),
+        );
 
-    log::debug!(
-        "Supported formats: {:?}",
-        surface.get_supported_formats(&adapter)
-    );
-    let formats = surface.get_supported_formats(&adapter);
-    let format = formats
-        .into_iter()
-        .find(|&format| format == TextureFormat::Bgra8Unorm)
-        .expect("Adapter doesn't support BGRA8 render buffer.");
+        app.run();
 
-    surface.configure(
-        &device,
-        &SurfaceConfiguration {
-            usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_DST,
-            format,
-            width: size.width,
-            height: size.height,
-            present_mode: PresentMode::Fifo,
-        },
-    );
+        // Trigger a FlutterEngineSendWindowMetricsEvent to communicate the initial
+        // size of the window.
+        metrics_changed(&app, &window);
 
-    let mut app = FlutterApplication::new(
-        &args.asset_bundle_path,
-        args.flutter_flags,
-        surface,
-        Arc::new(instance),
-        device,
-        queue,
-        event_loop.create_proxy(),
-    );
+        event_loop.run(move |event, _, control_flow| {
+            let _ = &adapter;
 
-    app.run();
-
-    // Trigger a FlutterEngineSendWindowMetricsEvent to communicate the initial
-    // size of the window.
-    metrics_changed(&app, &window);
-
-    event_loop.run(move |event, _, control_flow| {
-        let _ = &adapter;
-
-        *control_flow = ControlFlow::Wait;
-        match event {
-            Event::UserEvent(handler) => {
-                handler(&app);
-            }
-            Event::RedrawRequested(_window_id) => {
-                app.schedule_frame();
-            }
-            Event::WindowEvent { event, .. } => match event {
-                WindowEvent::CloseRequested => {
-                    *control_flow = ControlFlow::Exit;
+            *control_flow = ControlFlow::Wait;
+            match event {
+                Event::UserEvent(handler) => {
+                    handler(&app);
                 }
-                WindowEvent::Moved(_)
-                | WindowEvent::Resized(_)
-                | WindowEvent::ScaleFactorChanged { .. } => {
-                    metrics_changed(&app, &window);
+                Event::RedrawRequested(_window_id) => {
+                    app.schedule_frame();
                 }
-                WindowEvent::MouseInput {
-                    device_id,
-                    state,
-                    button,
-                    ..
-                } => {
-                    app.mouse_buttons(device_id, state, button);
-                }
-                WindowEvent::CursorEntered { device_id } => {
-                    app.mouse_entered(device_id);
-                }
-                WindowEvent::CursorLeft { device_id } => {
-                    app.mouse_left(device_id);
-                }
-                WindowEvent::CursorMoved {
-                    device_id,
-                    position,
-                    ..
-                } => {
-                    app.mouse_moved(device_id, position);
-                }
-                WindowEvent::MouseWheel {
-                    device_id,
-                    delta,
-                    phase,
-                    ..
-                } => {
-                    app.mouse_wheel(device_id, delta, phase);
-                }
-                WindowEvent::KeyboardInput {
-                    event,
-                    device_id,
-                    is_synthetic,
-                } => {
-                    app.key_event(device_id, event, is_synthetic);
-                }
+                Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::CloseRequested => {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                    WindowEvent::Moved(_)
+                    | WindowEvent::Resized(_)
+                    | WindowEvent::ScaleFactorChanged { .. } => {
+                        metrics_changed(&app, &window);
+                    }
+                    WindowEvent::MouseInput {
+                        device_id,
+                        state,
+                        button,
+                        ..
+                    } => {
+                        app.mouse_buttons(device_id, state, button);
+                    }
+                    WindowEvent::CursorEntered { device_id } => {
+                        app.mouse_entered(device_id);
+                    }
+                    WindowEvent::CursorLeft { device_id } => {
+                        app.mouse_left(device_id);
+                    }
+                    WindowEvent::CursorMoved {
+                        device_id,
+                        position,
+                        ..
+                    } => {
+                        app.mouse_moved(device_id, position);
+                    }
+                    WindowEvent::MouseWheel {
+                        device_id,
+                        delta,
+                        phase,
+                        ..
+                    } => {
+                        app.mouse_wheel(device_id, delta, phase);
+                    }
+                    WindowEvent::KeyboardInput {
+                        event,
+                        device_id,
+                        is_synthetic,
+                    } => {
+                        app.key_event(device_id, event, is_synthetic);
+                    }
+                    _ => {}
+                },
                 _ => {}
-            },
-            _ => {}
-        }
+            }
+        });
     });
+    Ok(())
 }
 
 fn metrics_changed(application: &FlutterApplication, window: &Window) {
