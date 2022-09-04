@@ -1,5 +1,4 @@
 use std::{
-    cell::Cell,
     collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
@@ -14,7 +13,6 @@ use std::{
     time::Duration,
 };
 
-use arboard::Clipboard;
 use ash::vk::Handle;
 use log::Level;
 use tokio::runtime::Runtime;
@@ -24,24 +22,21 @@ use winit::{
     dpi::PhysicalPosition,
     event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
     event_loop::EventLoopProxy,
-    keyboard::{Key, ModifiersState},
+    keyboard::ModifiersState,
 };
 
 use crate::{
-    action_key::ActionKey,
     compositor::Compositor,
-    flutter_application::text_input::{TextEditingValue, TextInput, TextInputClient},
+    flutter_application::text_input::TextInput,
     flutter_bindings::{
         FlutterCustomTaskRunners, FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
         FlutterEngineGetCurrentTime, FlutterEngineInitialize, FlutterEngineOnVsync,
         FlutterEngineResult, FlutterEngineResult_kInternalInconsistency,
         FlutterEngineResult_kInvalidArguments, FlutterEngineResult_kInvalidLibraryVersion,
         FlutterEngineResult_kSuccess, FlutterEngineRunInitialized, FlutterEngineRunTask,
-        FlutterEngineScheduleFrame, FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessage,
+        FlutterEngineScheduleFrame, FlutterEngineSendPlatformMessage,
         FlutterEngineSendPlatformMessageResponse, FlutterEngineSendPointerEvent,
         FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
-        FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
-        FlutterKeyEventType_kFlutterKeyEventTypeRepeat, FlutterKeyEventType_kFlutterKeyEventTypeUp,
         FlutterPlatformMessage, FlutterPlatformMessageResponseHandle,
         FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse, FlutterPointerEvent,
         FlutterPointerPhase, FlutterPointerPhase_kAdd, FlutterPointerPhase_kDown,
@@ -53,13 +48,14 @@ use crate::{
         FlutterTaskRunnerDescription, FlutterVulkanImage, FlutterVulkanInstanceHandle,
         FlutterVulkanRendererConfig, FlutterWindowMetricsEvent, FLUTTER_ENGINE_VERSION,
     },
-    keyboard_logical_key_map::translate_logical_key,
-    keyboard_physical_key_map::translate_physical_key,
     utils::flutter_asset_bundle_is_valid,
 };
 
+use self::keyboard::Keyboard;
+
 // mod keyboard_event;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
+mod keyboard;
 mod text_input;
 
 const PIXELS_PER_LINE: f64 = 10.0;
@@ -97,10 +93,7 @@ pub struct FlutterApplication {
     mice: HashMap<DeviceId, PointerState>,
     current_mouse_id: i32,
     runtime: Arc<Runtime>,
-    keyboard_client: Cell<Option<u64>>,
-    keyboard_modifiers: ModifiersState,
-    editing_state: TextEditingValue,
-    clipboard: Clipboard,
+    keyboard: Keyboard,
     user_data: Box<FlutterApplicationUserData>,
 }
 
@@ -218,10 +211,7 @@ impl FlutterApplication {
             mice: Default::default(),
             current_mouse_id: 0,
             runtime,
-            keyboard_client: Cell::new(None),
-            keyboard_modifiers: Default::default(),
-            editing_state: Default::default(),
-            clipboard: Clipboard::new().unwrap(),
+            keyboard: Default::default(),
             user_data,
         };
 
@@ -465,317 +455,11 @@ impl FlutterApplication {
     }
 
     pub fn modifiers_changed(&mut self, state: ModifiersState) {
-        self.keyboard_modifiers = state;
-    }
-
-    fn move_home(&mut self) {
-        self.editing_state.selection_base = Some(0);
-        if !self.keyboard_modifiers.shift_key() {
-            self.editing_state.selection_extent = Some(0);
-        }
-    }
-
-    fn move_end(&mut self) {
-        let len = self.editing_state.text.chars().count();
-        self.editing_state.selection_extent = Some(len as _);
-        if !self.keyboard_modifiers.shift_key() {
-            self.editing_state.selection_base = self.editing_state.selection_extent;
-        }
-    }
-
-    fn insert_text(&mut self, text: &str) {
-        let editing_state = &mut self.editing_state;
-        let len = editing_state.text.chars().count();
-        let selection_base = editing_state.selection_base.unwrap_or(0) as usize;
-        let selection_extent = editing_state.selection_extent.unwrap_or(0) as usize;
-        let selection = selection_base.min(selection_extent)..selection_base.max(selection_extent);
-
-        if len > 0 && selection.start < len {
-            editing_state.text.replace_range(selection.clone(), text);
-            editing_state.selection_base = Some((selection.start + text.chars().count()) as _);
-        } else {
-            editing_state.text.push_str(text);
-            editing_state.selection_base = Some(editing_state.text.chars().count() as _);
-        }
-        editing_state.selection_extent = editing_state.selection_base;
+        self.keyboard.modifiers_changed(state);
     }
 
     pub fn key_event(&mut self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
-        log::debug!("key_event: self = {:p}", self);
-
-        log::debug!(
-            "keyboard input: logical {:?} physical {:?} (Translated {:?}, {:?})",
-            event.logical_key,
-            event.physical_key,
-            translate_logical_key(event.logical_key),
-            translate_physical_key(event.physical_key),
-        );
-        if let (Some(logical), Some(physical)) = (
-            translate_logical_key(event.logical_key),
-            translate_physical_key(event.physical_key),
-        ) {
-            // let flutter_event = FlutterKeyboardEvent::Linux {
-            //     r#type: match event.state {
-            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
-            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
-            //     },
-            //     toolkit: LinuxToolkit::Gtk,
-            //     unicode_scalar_values: if let Some(character) = event.text {
-            //         let mut buffer = [0u8; 8];
-            //         if character.as_bytes().read(&mut buffer).is_ok() {
-            //             u64::from_le_bytes(buffer)
-            //         } else {
-            //             0
-            //         }
-            //     } else {
-            //         0
-            //     },
-            //     key_code: physical,
-            //     scan_code: logical,
-            //     modifiers: 0,
-            //     specified_logical_key: 0,
-            // };
-            // let flutter_event = FlutterKeyboardEvent::Web {
-            //     r#type: match event.state {
-            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
-            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
-            //     },
-            //     code: event.text.unwrap_or_default().to_owned(),
-            //     key: event.text.unwrap_or_default().to_owned(),
-            //     location: 0,
-            //     meta_state: 0,
-            //     key_code: 0,
-            // };
-
-            // let json = serde_json::to_vec(&flutter_event).unwrap();
-            // log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
-            // let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
-            // let message = FlutterPlatformMessage {
-            //     struct_size: size_of::<FlutterPlatformMessage>() as _,
-            //     channel: channel.as_ptr(),
-            //     message: json.as_ptr(),
-            //     message_size: json.len() as _,
-            //     response_handle: null(),
-            // };
-
-            // Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });
-
-            // drop(message);
-            // drop(channel);
-
-            let type_ = match event.state {
-                ElementState::Pressed => {
-                    if event.repeat {
-                        FlutterKeyEventType_kFlutterKeyEventTypeRepeat
-                    } else {
-                        FlutterKeyEventType_kFlutterKeyEventTypeDown
-                    }
-                }
-                ElementState::Released => FlutterKeyEventType_kFlutterKeyEventTypeUp,
-            };
-            log::debug!(
-                "keyboard event: physical {physical:#x} logical {logical:#x} text {:?}",
-                event.text
-            );
-            let character = event.text.map(|text| CString::new(text).unwrap());
-            let flutter_event = FlutterKeyEvent {
-                struct_size: size_of::<FlutterKeyEvent>() as _,
-                timestamp: Self::current_time() as f64,
-                type_,
-                physical,
-                logical,
-                character: if event.state == ElementState::Released {
-                    null()
-                } else if let Some(character) = &character {
-                    character.as_ptr()
-                } else {
-                    null()
-                },
-                synthesized,
-            };
-            Self::unwrap_result(unsafe {
-                FlutterEngineSendKeyEvent(self.engine, &flutter_event, None, null_mut())
-            });
-            drop(character);
-
-            log::debug!(
-                "Updating editing state for keyboard client {:?}",
-                self.keyboard_client.get()
-            );
-
-            if event.state == ElementState::Pressed
-                && self
-                    .editing_state
-                    .selection_base
-                    .map(|val| val >= 0)
-                    .unwrap_or(false)
-                && self
-                    .editing_state
-                    .selection_extent
-                    .map(|val| val >= 0)
-                    .unwrap_or(false)
-            {
-                // send flutter/textinput message
-                {
-                    let editing_state = &mut self.editing_state;
-                    let len = editing_state.text.chars().count();
-                    let selection_base = editing_state.selection_base.unwrap_or(0) as usize;
-                    let selection_extent = editing_state.selection_extent.unwrap_or(0) as usize;
-                    let selection =
-                        selection_base.min(selection_extent)..selection_base.max(selection_extent);
-                    match event.logical_key {
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::ArrowLeft if self.keyboard_modifiers.meta_key() => {
-                            self.move_home();
-                        }
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::ArrowRight if self.keyboard_modifiers.meta_key() => {
-                            self.move_end();
-                        }
-                        Key::ArrowLeft => {
-                            if selection.start > 0 {
-                                if !self.keyboard_modifiers.shift_key()
-                                    && selection.start != selection.end
-                                {
-                                    editing_state.selection_extent = editing_state.selection_base;
-                                } else {
-                                    editing_state.selection_base = Some((selection.start - 1) as _);
-                                    if !self.keyboard_modifiers.shift_key() {
-                                        editing_state.selection_extent =
-                                            editing_state.selection_base;
-                                    }
-                                }
-                            } else if !self.keyboard_modifiers.shift_key()
-                                && selection.start != selection.end
-                            {
-                                editing_state.selection_extent = editing_state.selection_base;
-                            }
-                        }
-                        Key::ArrowRight => {
-                            if selection.end < len {
-                                if !self.keyboard_modifiers.shift_key()
-                                    && selection.start != selection.end
-                                {
-                                    editing_state.selection_base = editing_state.selection_extent;
-                                } else {
-                                    editing_state.selection_extent = Some((selection.end + 1) as _);
-                                    if !self.keyboard_modifiers.shift_key() {
-                                        editing_state.selection_base =
-                                            editing_state.selection_extent;
-                                    }
-                                }
-                            } else if !self.keyboard_modifiers.shift_key()
-                                && selection.start != selection.end
-                            {
-                                editing_state.selection_base = editing_state.selection_extent;
-                            }
-                        }
-                        Key::ArrowUp | Key::Home => {
-                            self.move_home();
-                        }
-                        Key::ArrowDown | Key::End => {
-                            self.move_end();
-                        }
-                        Key::Backspace => {
-                            if selection.start == selection.end {
-                                if selection.start > 0 {
-                                    editing_state.text.remove(selection.start - 1);
-                                }
-                                editing_state.selection_base = Some((selection.start - 1) as _);
-                            } else {
-                                editing_state.text.replace_range(selection.clone(), "");
-                                editing_state.selection_extent = editing_state.selection_base;
-                            }
-                        }
-                        Key::Delete => {
-                            if selection.start == selection.end {
-                                if selection.start < len {
-                                    editing_state.text.remove(selection.start);
-                                }
-                            } else {
-                                editing_state.text.replace_range(selection.clone(), "");
-                                editing_state.selection_extent = editing_state.selection_base;
-                            }
-                        }
-                        Key::Character("a") if self.keyboard_modifiers.action_key() => {
-                            editing_state.selection_base = Some(0);
-                            editing_state.selection_extent = Some(len as _);
-                        }
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::Character("a") if self.keyboard_modifiers.control_key() => {
-                            self.move_home();
-                        }
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::Character("e") if self.keyboard_modifiers.control_key() => {
-                            self.move_end();
-                        }
-                        Key::Character("x") if self.keyboard_modifiers.action_key() => {
-                            if selection.start != selection.end {
-                                let text = editing_state
-                                    .text
-                                    .chars()
-                                    .skip(selection.start)
-                                    .take(selection.end - selection.start)
-                                    .collect();
-                                editing_state.text.replace_range(selection.clone(), "");
-                                editing_state.selection_extent = editing_state.selection_base;
-                                self.clipboard.set_text(text).unwrap();
-                            }
-                        }
-                        Key::Character("c") if self.keyboard_modifiers.action_key() => {
-                            if selection.start != selection.end {
-                                let text = editing_state
-                                    .text
-                                    .chars()
-                                    .skip(selection.start)
-                                    .take(selection.end - selection.start)
-                                    .collect();
-                                self.clipboard.set_text(text).unwrap();
-                            }
-                        }
-                        Key::Character("v") if self.keyboard_modifiers.action_key() => {
-                            if let Ok(text) = self.clipboard.get_text() {
-                                self.insert_text(&text);
-                            }
-                        }
-                        _ if self.keyboard_modifiers.control_key()
-                            || self.keyboard_modifiers.super_key() =>
-                        {
-                            // ignore
-                        }
-                        _ => {
-                            if let Some(text) = event.text {
-                                self.insert_text(text);
-                            }
-                        }
-                    }
-                }
-                self.update_editing_state();
-            }
-        }
-    }
-
-    fn update_editing_state(&self) {
-        if let Some(keyboard_client) = self.keyboard_client.get() {
-            let channel = CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap();
-            let message =
-                TextInputClient::UpdateEditingState(keyboard_client, self.editing_state.clone());
-            log::info!("update_editing_state message: {message:?}");
-            let message_json = serde_json::to_vec(&message).unwrap();
-            Self::unwrap_result(unsafe {
-                FlutterEngineSendPlatformMessage(
-                    self.engine,
-                    &FlutterPlatformMessage {
-                        struct_size: size_of::<FlutterPlatformMessage>() as _,
-                        channel: channel.as_ptr(),
-                        message: message_json.as_ptr(),
-                        message_size: message_json.len() as _,
-                        response_handle: null(),
-                    },
-                )
-            });
-            drop(channel);
-        }
+        self.keyboard.key_event(self.engine, event, synthesized);
     }
 
     pub fn schedule_frame(&self) {
@@ -817,26 +501,7 @@ impl FlutterApplication {
             if let Ok(channel) = channel {
                 if channel == "flutter/textinput" {
                     if let Ok(text_input) = serde_json::from_slice::<TextInput>(&data) {
-                        match text_input {
-                            TextInput::SetClient(client_id, _parameters) => {
-                                this.keyboard_client.set(Some(client_id));
-                                log::debug!(
-                                    "Setting keyboard client to {:?}",
-                                    this.keyboard_client.get()
-                                );
-                            }
-                            TextInput::ClearClient => {
-                                this.keyboard_client.set(None);
-                                log::debug!("Setting keyboard client to None");
-                            }
-                            TextInput::SetEditingState(state) => {
-                                log::debug!("set editing state: {:#?}", state);
-                                this.editing_state = state;
-                            }
-                            other => {
-                                log::warn!("Unhandled TextInput message: {:#?}", other);
-                            }
-                        }
+                        this.keyboard.handle_textinput_message(text_input);
                     } else {
                         log::debug!("Unknown textinput message: {:?}", std::str::from_utf8(&data));
                     }
