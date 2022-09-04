@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 #![feature(once_cell)]
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use wgpu::{
@@ -15,7 +15,8 @@ use winit::{
 };
 
 mod flutter_application;
-use flutter_application::FlutterApplication;
+use flutter_application::{FlutterApplication, FlutterApplicationCallback};
+
 mod compositor;
 mod keyboard_logical_key_map;
 mod keyboard_physical_key_map;
@@ -46,7 +47,7 @@ async fn main() {
     env_logger::init();
     let args = Args::parse();
 
-    let event_loop: EventLoop<Box<dyn FnOnce() + 'static + Send>> =
+    let event_loop: EventLoop<FlutterApplicationCallback> =
         EventLoopBuilder::with_user_event().build();
     let window = WindowBuilder::new()
         .with_title("Flutter Embedder")
@@ -101,21 +102,21 @@ async fn main() {
         },
     );
 
-    FlutterApplication::initialize(
+    let mut app = FlutterApplication::new(
         &args.asset_bundle_path,
         args.flutter_flags,
         surface,
-        instance,
+        Arc::new(instance),
         device,
         queue,
         event_loop.create_proxy(),
     );
 
-    FlutterApplication::run();
+    app.run();
 
     // Trigger a FlutterEngineSendWindowMetricsEvent to communicate the initial
     // size of the window.
-    metrics_changed(&window);
+    metrics_changed(&app, &window);
 
     event_loop.run(move |event, _, control_flow| {
         let _ = &adapter;
@@ -123,10 +124,10 @@ async fn main() {
         *control_flow = ControlFlow::Wait;
         match event {
             Event::UserEvent(handler) => {
-                handler();
+                handler(&app);
             }
             Event::RedrawRequested(_window_id) => {
-                FlutterApplication::schedule_frame();
+                app.schedule_frame();
             }
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => {
@@ -135,7 +136,7 @@ async fn main() {
                 WindowEvent::Moved(_)
                 | WindowEvent::Resized(_)
                 | WindowEvent::ScaleFactorChanged { .. } => {
-                    metrics_changed(&window);
+                    metrics_changed(&app, &window);
                 }
                 WindowEvent::MouseInput {
                     device_id,
@@ -143,28 +144,20 @@ async fn main() {
                     button,
                     ..
                 } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.mouse_buttons(device_id, state, button);
-                    });
+                    app.mouse_buttons(device_id, state, button);
                 }
                 WindowEvent::CursorEntered { device_id } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.mouse_entered(device_id);
-                    });
+                    app.mouse_entered(device_id);
                 }
                 WindowEvent::CursorLeft { device_id } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.mouse_left(device_id);
-                    });
+                    app.mouse_left(device_id);
                 }
                 WindowEvent::CursorMoved {
                     device_id,
                     position,
                     ..
                 } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.mouse_moved(device_id, position);
-                    });
+                    app.mouse_moved(device_id, position);
                 }
                 WindowEvent::MouseWheel {
                     device_id,
@@ -172,18 +165,14 @@ async fn main() {
                     phase,
                     ..
                 } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.mouse_wheel(device_id, delta, phase);
-                    });
+                    app.mouse_wheel(device_id, delta, phase);
                 }
                 WindowEvent::KeyboardInput {
                     event,
                     device_id,
                     is_synthetic,
                 } => {
-                    FlutterApplication::with_mut(|app| {
-                        app.key_event(device_id, event, is_synthetic);
-                    });
+                    app.key_event(device_id, event, is_synthetic);
                 }
                 _ => {}
             },
@@ -192,7 +181,7 @@ async fn main() {
     });
 }
 
-fn metrics_changed(window: &Window) {
+fn metrics_changed(application: &FlutterApplication, window: &Window) {
     let size = window.inner_size();
     let position = window
         .inner_position()
@@ -204,16 +193,14 @@ fn metrics_changed(window: &Window) {
         //     .current_monitor()
         //     .map(|monitor| monitor.scale_factor())
     );
-    FlutterApplication::with(|app| {
-        app.metrics_changed(
-            size.width,
-            size.height,
-            window
-                .current_monitor()
-                .map(|monitor| monitor.scale_factor())
-                .unwrap_or(1.0),
-            position.x,
-            position.y,
-        );
-    });
+    application.metrics_changed(
+        size.width,
+        size.height,
+        window
+            .current_monitor()
+            .map(|monitor| monitor.scale_factor())
+            .unwrap_or(1.0),
+        position.x,
+        position.y,
+    );
 }

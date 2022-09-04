@@ -1,6 +1,5 @@
 use std::{
-    backtrace::Backtrace,
-    cell::{Cell, OnceCell},
+    cell::Cell,
     collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
@@ -40,11 +39,11 @@ use crate::{
         FlutterEngineSendWindowMetricsEvent, FlutterEngineShutdown, FlutterFrameInfo,
         FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
         FlutterKeyEventType_kFlutterKeyEventTypeRepeat, FlutterKeyEventType_kFlutterKeyEventTypeUp,
-        FlutterPlatformMessage, FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse,
-        FlutterPointerEvent, FlutterPointerPhase, FlutterPointerPhase_kAdd,
-        FlutterPointerPhase_kDown, FlutterPointerPhase_kHover, FlutterPointerPhase_kMove,
-        FlutterPointerPhase_kRemove, FlutterPointerPhase_kUp,
-        FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
+        FlutterPlatformMessage, FlutterPlatformMessageResponseHandle,
+        FlutterPointerDeviceKind_kFlutterPointerDeviceKindMouse, FlutterPointerEvent,
+        FlutterPointerPhase, FlutterPointerPhase_kAdd, FlutterPointerPhase_kDown,
+        FlutterPointerPhase_kHover, FlutterPointerPhase_kMove, FlutterPointerPhase_kRemove,
+        FlutterPointerPhase_kUp, FlutterPointerSignalKind_kFlutterPointerSignalKindNone,
         FlutterPointerSignalKind_kFlutterPointerSignalKindScroll, FlutterProjectArgs,
         FlutterRendererConfig, FlutterRendererConfig__bindgen_ty_1, FlutterRendererType_kVulkan,
         FlutterSemanticsCustomAction, FlutterSemanticsNode, FlutterTask,
@@ -63,8 +62,6 @@ mod text_input;
 const PIXELS_PER_LINE: f64 = 10.0;
 const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
 
-static FLUTTER_APPLICATION: Mutex<OnceCell<FlutterApplication>> = Mutex::new(OnceCell::new());
-
 struct PointerState {
     virtual_id: i32,
     position: PhysicalPosition<f64>,
@@ -74,38 +71,44 @@ struct PointerState {
 struct SendFlutterTask(FlutterTask);
 unsafe impl Send for SendFlutterTask {}
 
-struct SendFlutterEngine(FlutterEngine);
-unsafe impl Send for SendFlutterEngine {}
+struct SendFlutterPlatformMessageResponseHandle(*const FlutterPlatformMessageResponseHandle);
+unsafe impl Send for SendFlutterPlatformMessageResponseHandle {}
+
+pub type FlutterApplicationCallback = Box<dyn FnOnce(&FlutterApplication) + 'static + Send>;
+
+struct FlutterApplicationUserData {
+    event_loop_proxy: Mutex<EventLoopProxy<FlutterApplicationCallback>>,
+    instance: Arc<Instance>,
+    runtime: Arc<Runtime>,
+    main_thread: ThreadId,
+}
 
 pub struct FlutterApplication {
     engine: FlutterEngine,
     compositor: Compositor,
     surface: Surface,
-    instance: Instance,
+    instance: Arc<Instance>,
     device: Device,
     queue: Queue,
     aot_data: Vec<FlutterEngineAOTData>,
     mice: HashMap<DeviceId, PointerState>,
     current_mouse_id: i32,
-    event_loop_proxy: EventLoopProxy<Box<dyn FnOnce() + 'static + Send>>,
     runtime: Arc<Runtime>,
-    main_thread: ThreadId,
     keyboard_client: Cell<Option<u64>>,
     editing_state: RwLock<TextEditingValue>,
+    user_data: Box<FlutterApplicationUserData>,
 }
 
-unsafe impl Send for FlutterApplication {}
-
 impl FlutterApplication {
-    pub fn initialize(
+    pub fn new(
         asset_bundle_path: &Path,
         flutter_flags: Vec<String>,
         surface: Surface,
-        instance: Instance,
+        instance: Arc<Instance>,
         device: Device,
         queue: Queue,
-        event_loop_proxy: EventLoopProxy<Box<dyn FnOnce() + 'static + Send>>,
-    ) {
+        event_loop_proxy: EventLoopProxy<Box<dyn FnOnce(&Self) + 'static + Send>>,
+    ) -> FlutterApplication {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
         }
@@ -191,36 +194,35 @@ impl FlutterApplication {
             .map(|arg| arg.as_bytes().as_ptr() as _)
             .collect();
 
-        {
-            let mut global_application = FLUTTER_APPLICATION.lock().unwrap();
-            global_application
-                .set(Self {
-                    engine: null_mut(),
-                    compositor: Compositor::new(),
-                    surface,
-                    instance,
-                    device,
-                    queue,
-                    aot_data: vec![],
-                    mice: Default::default(),
-                    current_mouse_id: 0,
-                    event_loop_proxy,
-                    runtime: Arc::new(Runtime::new().unwrap()),
-                    main_thread: std::thread::current().id(),
-                    keyboard_client: Cell::new(None),
-                    editing_state: RwLock::default(),
-                })
-                .ok()
-                .unwrap();
-            global_application.get_mut().unwrap();
-        }
+        let runtime = Arc::new(Runtime::new().unwrap());
+        let user_data = Box::new(FlutterApplicationUserData {
+            event_loop_proxy: Mutex::new(event_loop_proxy),
+            instance: instance.clone(),
+            runtime: runtime.clone(),
+            main_thread: std::thread::current().id(),
+        });
 
-        let flutter_compositor =
-            Self::with(|instance| instance.compositor.flutter_compositor(&instance)).unwrap();
+        let mut instance = Self {
+            engine: null_mut(),
+            compositor: Compositor::new(),
+            surface,
+            instance,
+            device,
+            queue,
+            aot_data: vec![],
+            mice: Default::default(),
+            current_mouse_id: 0,
+            runtime,
+            keyboard_client: Cell::new(None),
+            editing_state: RwLock::default(),
+            user_data,
+        };
+
+        let flutter_compositor = instance.compositor.flutter_compositor(&instance);
 
         let task_runner = FlutterTaskRunnerDescription {
             struct_size: size_of::<FlutterTaskRunnerDescription>() as _,
-            user_data: null_mut(),
+            user_data: &*instance.user_data as *const _ as _,
             runs_task_on_current_thread_callback: Some(Self::runs_task_on_current_thread_callback),
             post_task_callback: Some(Self::post_task_callback),
             identifier: 0,
@@ -254,15 +256,13 @@ impl FlutterApplication {
         std::fs::create_dir("cache").ok();
         args.persistent_cache_path = b"cache".as_ptr() as _;
 
-        let mut engine = null_mut();
-
         Self::unwrap_result(unsafe {
             FlutterEngineInitialize(
                 FLUTTER_ENGINE_VERSION.into(),
                 &config as _,
                 &args as _,
-                null_mut(),
-                &mut engine,
+                &*instance.user_data as *const _ as _,
+                &mut instance.engine,
             )
         });
 
@@ -275,43 +275,19 @@ impl FlutterApplication {
         drop(task_runner);
         drop(argv);
 
-        Self::with_mut(|instance| instance.engine = engine);
+        instance
     }
 
-    pub fn with<R>(f: impl FnOnce(&Self) -> R) -> Option<R> {
-        let bt = Backtrace::capture();
-        eprintln!("FlutterApplication::with in {:#?}", bt);
-        let r = FLUTTER_APPLICATION
-            .lock()
-            .ok()
-            .and_then(|app| app.get().map(|app| f(app)));
-        eprintln!("FlutterApplication::with end");
-        r
-    }
-
-    pub fn with_mut<R>(f: impl FnOnce(&mut Self) -> R) -> Option<R> {
-        let bt = Backtrace::capture();
-        eprintln!("FlutterApplication::with_mut in {:#?}", bt);
-        let r = FLUTTER_APPLICATION
-            .lock()
-            .ok()
-            .and_then(|mut app| app.get_mut().map(|app| f(app)));
-        eprintln!("FlutterApplication::with_mut end");
-        r
-    }
-
-    fn engine() -> Option<FlutterEngine> {
-        Self::with(|this| this.engine)
-    }
-
-    pub fn run() {
-        let engine = Self::engine().unwrap();
-        Self::unwrap_result(unsafe { FlutterEngineRunInitialized(engine) });
+    pub fn run(&self) {
+        Self::unwrap_result(unsafe { FlutterEngineRunInitialized(self.engine) });
     }
 
     pub fn metrics_changed(&self, width: u32, height: u32, pixel_ratio: f64, x: i32, y: i32) {
-        self.event_loop_proxy
-            .send_event(Box::new(move || {
+        self.user_data
+            .event_loop_proxy
+            .lock()
+            .unwrap()
+            .send_event(Box::new(move |application| {
                 let metrics = FlutterWindowMetricsEvent {
                     struct_size: size_of::<FlutterWindowMetricsEvent>() as _,
                     width: width as _,
@@ -325,9 +301,8 @@ impl FlutterApplication {
                     physical_view_inset_left: 0.0,
                 };
                 log::debug!("setting metrics to {metrics:?}");
-                let engine = Self::engine().unwrap();
                 Self::unwrap_result(unsafe {
-                    FlutterEngineSendWindowMetricsEvent(engine, &metrics)
+                    FlutterEngineSendWindowMetricsEvent(application.engine, &metrics)
                 });
                 drop(metrics);
             }))
@@ -467,11 +442,13 @@ impl FlutterApplication {
                 scale: 1.0,
                 rotation: 0.0,
             };
-            self.event_loop_proxy
-                .send_event(Box::new(move || {
-                    let engine = Self::engine().unwrap();
+            self.user_data
+                .event_loop_proxy
+                .lock()
+                .unwrap()
+                .send_event(Box::new(move |application| {
                     Self::unwrap_result(unsafe {
-                        FlutterEngineSendPointerEvent(engine, &event, 1)
+                        FlutterEngineSendPointerEvent(application.engine, &event, 1)
                     });
                     drop(event);
                 }))
@@ -621,9 +598,8 @@ impl FlutterApplication {
         }
     }
 
-    pub fn schedule_frame() {
-        let engine = Self::engine().unwrap();
-        Self::unwrap_result(unsafe { FlutterEngineScheduleFrame(engine) });
+    pub fn schedule_frame(&self) {
+        Self::unwrap_result(unsafe { FlutterEngineScheduleFrame(self.engine) });
     }
 
     pub fn surface(&self) -> &Surface {
@@ -645,18 +621,22 @@ impl FlutterApplication {
 
     extern "C" fn platform_message_callback(
         message: *const FlutterPlatformMessage,
-        _user_data: *mut c_void,
+        user_data: *mut c_void,
     ) {
         log::debug!("platform_message_callback");
-        Self::with(|this| {
-            let message = unsafe { &*message };
-            let channel = unsafe { CStr::from_ptr(message.channel) };
-            if let Ok(channel) = channel.to_str() {
+        let message = unsafe { &*message };
+        let channel = unsafe { CStr::from_ptr(message.channel) }
+            .to_str()
+            .to_owned();
+        let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
+        let response_handle = SendFlutterPlatformMessageResponseHandle(message.response_handle);
+        let data =
+            unsafe { std::slice::from_raw_parts(message.message, message.message_size as _) }
+                .to_vec();
+        user_data.event_loop_proxy.lock().unwrap().send_event(Box::new(move |this| {
+            if let Ok(channel) = channel {
                 if channel == "flutter/textinput" {
-                    let data = unsafe {
-                        std::slice::from_raw_parts(message.message, message.message_size as _)
-                    };
-                    if let Ok(text_input) = serde_json::from_slice::<TextInput>(data) {
+                    if let Ok(text_input) = serde_json::from_slice::<TextInput>(&data) {
                         match text_input {
                             TextInput::SetClient(client_id, _parameters) => {
                                 this.keyboard_client.set(Some(client_id));
@@ -674,29 +654,27 @@ impl FlutterApplication {
                             }
                         }
                     } else {
-                        log::debug!("Unknown textinput message: {:?}", std::str::from_utf8(data));
+                        log::debug!("Unknown textinput message: {:?}", std::str::from_utf8(&data));
                     }
                     Self::unwrap_result(unsafe {
                         FlutterEngineSendPlatformMessageResponse(
                             this.engine,
-                            message.response_handle,
+                            response_handle.0,
                             null(),
                             0,
                         )
                     });
                 } else {
-                    unsafe {
                         log::debug!(
                         "Unhandled platform message: channel = {channel}, message size = {}, message: {:?}",
-                        message.message_size,
-                        std::slice::from_raw_parts(message.message, message.message_size as _),
+                        data.len(),
+                        data,
                     );
-                    }
 
                     Self::unwrap_result(unsafe {
                         FlutterEngineSendPlatformMessageResponse(
                             this.engine,
-                            message.response_handle,
+                            response_handle.0,
                             null(),
                             0,
                         )
@@ -706,13 +684,14 @@ impl FlutterApplication {
                 Self::unwrap_result(unsafe {
                     FlutterEngineSendPlatformMessageResponse(
                         this.engine,
-                        message.response_handle,
+                        response_handle.0,
                         null(),
                         0,
                     )
                 });
             }
-        });
+            drop(response_handle);
+        })).ok().unwrap();
     }
 
     extern "C" fn root_isolate_create(_user_data: *mut c_void) {
@@ -734,14 +713,22 @@ impl FlutterApplication {
         });
     }
 
-    extern "C" fn vsync_callback(_user_data: *mut c_void, baton: isize) {
-        Self::with(|this| {
-            this.device().poll(wgpu::Maintain::Wait);
-            let time = Self::current_time();
-            Self::unwrap_result(unsafe {
-                FlutterEngineOnVsync(this.engine, baton, time, time + 1000000000 / 60)
-            });
-        });
+    extern "C" fn vsync_callback(user_data: *mut c_void, baton: isize) {
+        let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
+
+        user_data
+            .event_loop_proxy
+            .lock()
+            .unwrap()
+            .send_event(Box::new(move |this| {
+                this.device().poll(wgpu::Maintain::Wait);
+                let time = Self::current_time();
+                Self::unwrap_result(unsafe {
+                    FlutterEngineOnVsync(this.engine, baton, time, time + 1000000000 / 60)
+                });
+            }))
+            .ok()
+            .unwrap();
     }
 
     extern "C" fn on_pre_engine_restart_callback(_user_data: *mut c_void) {
@@ -765,56 +752,49 @@ impl FlutterApplication {
     }
 
     extern "C" fn instance_proc_address_callback(
-        _user_data: *mut c_void,
+        user_data: *mut c_void,
         _instance: FlutterVulkanInstanceHandle,
         name: *const c_char,
     ) -> *mut c_void {
-        Self::with(|this| {
-            let result = unsafe {
-                (*this).instance.as_hal::<Vulkan, _, _>(|instance| {
-                    instance.and_then(|instance| {
-                        let shared = instance.shared_instance();
-                        let entry = shared.entry();
-                        let cname = CStr::from_ptr(name);
-                        if cname == CStr::from_bytes_with_nul(b"vkCreateInstance\0").unwrap() {
-                            Some(entry.fp_v1_0().create_instance as *mut c_void)
-                        } else if cname
-                            == CStr::from_bytes_with_nul(b"vkCreateDebugReportCallbackEXT\0")
-                                .unwrap()
-                        {
-                            None
-                        } else if cname
-                            == CStr::from_bytes_with_nul(
-                                b"vkEnumerateInstanceExtensionProperties\0",
-                            )
+        let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
+
+        let result = unsafe {
+            user_data.instance.as_hal::<Vulkan, _, _>(|instance| {
+                instance.and_then(|instance| {
+                    let shared = instance.shared_instance();
+                    let entry = shared.entry();
+                    let cname = CStr::from_ptr(name);
+                    if cname == CStr::from_bytes_with_nul(b"vkCreateInstance\0").unwrap() {
+                        Some(entry.fp_v1_0().create_instance as *mut c_void)
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkCreateDebugReportCallbackEXT\0").unwrap()
+                    {
+                        None
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceExtensionProperties\0")
                             .unwrap()
-                        {
-                            Some(
-                                entry.fp_v1_0().enumerate_instance_extension_properties
-                                    as *mut c_void,
-                            )
-                        } else if cname
-                            == CStr::from_bytes_with_nul(b"vkEnumerateInstanceLayerProperties\0")
-                                .unwrap()
-                        {
-                            Some(entry.fp_v1_0().enumerate_instance_layer_properties as *mut c_void)
-                        } else {
-                            entry
-                                .get_instance_proc_addr(shared.raw_instance().handle(), name)
-                                .map(|f| f as *mut c_void)
-                        }
-                    })
+                    {
+                        Some(entry.fp_v1_0().enumerate_instance_extension_properties as *mut c_void)
+                    } else if cname
+                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceLayerProperties\0")
+                            .unwrap()
+                    {
+                        Some(entry.fp_v1_0().enumerate_instance_layer_properties as *mut c_void)
+                    } else {
+                        entry
+                            .get_instance_proc_addr(shared.raw_instance().handle(), name)
+                            .map(|f| f as *mut c_void)
+                    }
                 })
-            }
-            .unwrap_or_else(null_mut);
-            log::trace!(
-                "instance_proc_address_callback: {} -> {:?}",
-                unsafe { CStr::from_ptr(name) }.to_str().unwrap(),
-                result,
-            );
-            result
-        })
-        .unwrap()
+            })
+        }
+        .unwrap_or_else(null_mut);
+        log::trace!(
+            "instance_proc_address_callback: {} -> {:?}",
+            unsafe { CStr::from_ptr(name) }.to_str().unwrap(),
+            result,
+        );
+        result
     }
 
     extern "C" fn next_image(
@@ -833,46 +813,42 @@ impl FlutterApplication {
         // Not used if a FlutterCompositor is supplied in FlutterProjectArgs.
     }
 
-    extern "C" fn runs_task_on_current_thread_callback(_user_data: *mut c_void) -> bool {
-        Self::with(|this| this.main_thread == std::thread::current().id()).unwrap()
+    extern "C" fn runs_task_on_current_thread_callback(user_data: *mut c_void) -> bool {
+        let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
+        user_data.main_thread == std::thread::current().id()
     }
 
     extern "C" fn post_task_callback(
         task: FlutterTask,
         target_time_nanos: u64,
-        _user_data: *mut c_void,
+        user_data: *mut c_void,
     ) {
-        let (engine, event_loop_proxy, runtime) = Self::with(|this| {
-            (
-                SendFlutterEngine(this.engine),
-                this.event_loop_proxy.clone(),
-                this.runtime.clone(),
-            )
-        })
-        .unwrap();
+        let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
         let task = SendFlutterTask(task);
 
         if Self::current_time() >= target_time_nanos {
-            event_loop_proxy
-                .send_event(Box::new(move || unsafe {
-                    Self::unwrap_result(FlutterEngineRunTask(engine.0, &task.0));
+            user_data
+                .event_loop_proxy
+                .lock()
+                .unwrap()
+                .send_event(Box::new(move |application| unsafe {
+                    Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
                     drop(task);
-                    drop(engine);
                 }))
                 .ok()
                 .unwrap();
         } else {
-            runtime.spawn(async move {
+            let event_loop_proxy = user_data.event_loop_proxy.lock().unwrap().clone();
+            user_data.runtime.spawn(async move {
                 tokio::time::sleep(Duration::from_nanos(
                     target_time_nanos - Self::current_time(),
                 ))
                 .await;
 
                 event_loop_proxy
-                    .send_event(Box::new(move || unsafe {
-                        Self::unwrap_result(FlutterEngineRunTask(engine.0, &task.0));
+                    .send_event(Box::new(move |application| unsafe {
+                        Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
                         drop(task);
-                        drop(engine);
                     }))
                     .ok()
                     .unwrap();
