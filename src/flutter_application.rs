@@ -26,7 +26,6 @@ use winit::{
 };
 
 use crate::{
-    compositor::Compositor,
     flutter_application::text_input::TextInput,
     flutter_bindings::{
         FlutterCustomTaskRunners, FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
@@ -55,8 +54,11 @@ use self::keyboard::Keyboard;
 
 // mod keyboard_event;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
+mod compositor;
 mod keyboard;
 mod text_input;
+
+use compositor::Compositor;
 
 const PIXELS_PER_LINE: f64 = 10.0;
 const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
