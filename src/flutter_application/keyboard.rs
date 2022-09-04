@@ -259,6 +259,7 @@ impl Keyboard {
                                     editing_state.text.remove(selection.start - 1);
                                 }
                                 editing_state.selection_base = Some((selection.start - 1) as _);
+                                editing_state.selection_extent = editing_state.selection_base;
                             } else {
                                 editing_state.text.replace_range(selection.clone(), "");
                                 editing_state.selection_extent = editing_state.selection_base;
