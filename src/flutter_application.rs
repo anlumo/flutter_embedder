@@ -23,6 +23,7 @@ use winit::{
     event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
     event_loop::EventLoopProxy,
     keyboard::ModifiersState,
+    window::CursorIcon,
 };
 
 use crate::{
@@ -100,6 +101,7 @@ pub struct FlutterApplication {
     runtime: Arc<Runtime>,
     keyboard: Keyboard,
     user_data: Box<FlutterApplicationUserData>,
+    set_cursor_icon: Box<dyn Fn(Option<CursorIcon>) + 'static>,
 }
 
 impl FlutterApplication {
@@ -112,6 +114,7 @@ impl FlutterApplication {
         device: Device,
         queue: Queue,
         event_loop_proxy: EventLoopProxy<FlutterApplicationCallback>,
+        set_cursor_icon: impl Fn(Option<CursorIcon>) + 'static,
     ) -> FlutterApplication {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
             panic!("Flutter asset bundle was not valid.");
@@ -218,6 +221,7 @@ impl FlutterApplication {
             runtime,
             keyboard: Default::default(),
             user_data,
+            set_cursor_icon: Box::new(set_cursor_icon),
         };
 
         let flutter_compositor = instance.compositor.flutter_compositor(&instance);
@@ -519,13 +523,13 @@ impl FlutterApplication {
                         )
                     });
                 } else if channel == FLUTTER_MOUSECURSOR_CHANNEL {
-                    log::debug!("mousecursor bytes: {:#?}", std::str::from_utf8(&data));
-                    let data: Result<MouseCursor, _> = message_codec::from_slice(&data);
-                    log::debug!("mousecursor: {:#?}", data);
-                    // if let Ok(mouse_cursor) = serde_json::from_slice::<MouseCursor>(&data) {
-                    //     let MouseCursor::ActivateSystemCursor { device, kind } = mouse_cursor;
-                    //     log::info!("Set mouse cursor {device} to {kind}");
-                    // }
+                    if let Ok(mouse_cursor) = message_codec::from_slice(&data) {
+                        let MouseCursor::ActivateSystemCursor { kind, .. } = mouse_cursor;
+                        log::debug!("Set mouse cursor to {kind:?}");
+                        (this.set_cursor_icon)(kind.into());
+                    } else {
+                        log::error!("Invalid mousecursor event received! {data:?}");
+                    }
                 } else {
                         log::debug!(
                         "Unhandled platform message: channel = {channel}, message size = {}, message: {:?}",

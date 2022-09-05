@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use winit::window::CursorIcon;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -511,4 +512,47 @@ pub enum MouseCursorKind {
     ///  * Web: zoom-out
     ///  * Linux: zoom-out
     ZoomOut,
+}
+
+impl Into<Option<CursorIcon>> for MouseCursorKind {
+    fn into(self) -> Option<CursorIcon> {
+        Some(match self {
+            MouseCursorKind::None => return None,
+            MouseCursorKind::Basic => CursorIcon::Default,
+            MouseCursorKind::Click => CursorIcon::Hand,
+            MouseCursorKind::Forbidden => CursorIcon::NotAllowed,
+            MouseCursorKind::Wait => CursorIcon::Wait,
+            MouseCursorKind::Progress => CursorIcon::Progress,
+            MouseCursorKind::ContextMenu => CursorIcon::ContextMenu,
+            MouseCursorKind::Help => CursorIcon::Help,
+            MouseCursorKind::Text => CursorIcon::Text,
+            MouseCursorKind::VerticalText => CursorIcon::VerticalText,
+            MouseCursorKind::Cell => CursorIcon::Cell,
+            MouseCursorKind::Precise => CursorIcon::Crosshair,
+            MouseCursorKind::Move => CursorIcon::Move,
+            MouseCursorKind::Grab => CursorIcon::Grab,
+            MouseCursorKind::Grabbing => CursorIcon::Grabbing,
+            MouseCursorKind::NoDrop => CursorIcon::NoDrop,
+            MouseCursorKind::Alias => CursorIcon::Alias,
+            MouseCursorKind::Copy => CursorIcon::Copy,
+            MouseCursorKind::Disappearing => unimplemented!(),
+            MouseCursorKind::AllScroll => CursorIcon::AllScroll,
+            MouseCursorKind::ResizeLeftRight => CursorIcon::NeResize,
+            MouseCursorKind::ResizeUpDown => CursorIcon::NsResize,
+            MouseCursorKind::ResizeUpLeftDownRight => CursorIcon::NwseResize,
+            MouseCursorKind::ResizeUpRightDownLeft => CursorIcon::NeswResize,
+            MouseCursorKind::ResizeUp => CursorIcon::NResize,
+            MouseCursorKind::ResizeDown => CursorIcon::SResize,
+            MouseCursorKind::ResizeLeft => CursorIcon::WResize,
+            MouseCursorKind::ResizeRight => CursorIcon::EResize,
+            MouseCursorKind::ResizeUpLeft => CursorIcon::NwResize,
+            MouseCursorKind::ResizeUpRight => CursorIcon::NeResize,
+            MouseCursorKind::ResizeDownLeft => CursorIcon::SwResize,
+            MouseCursorKind::ResizeDownRight => CursorIcon::SwResize,
+            MouseCursorKind::ResizeColumn => CursorIcon::ColResize,
+            MouseCursorKind::ResizeRow => CursorIcon::RowResize,
+            MouseCursorKind::ZoomIn => CursorIcon::ZoomIn,
+            MouseCursorKind::ZoomOut => CursorIcon::ZoomOut,
+        })
+    }
 }

@@ -106,6 +106,9 @@ fn main() -> Result<(), std::io::Error> {
             },
         );
 
+        let window = Arc::new(window);
+        let inner_window = window.clone();
+
         let mut app = FlutterApplication::new(
             inner_rt,
             &args.asset_bundle_path,
@@ -115,6 +118,14 @@ fn main() -> Result<(), std::io::Error> {
             device,
             queue,
             event_loop.create_proxy(),
+            move |cursor| {
+                if let Some(cursor) = cursor {
+                    inner_window.set_cursor_visible(true);
+                    inner_window.set_cursor_icon(cursor);
+                } else {
+                    inner_window.set_cursor_visible(false);
+                }
+            },
         );
 
         app.run();
