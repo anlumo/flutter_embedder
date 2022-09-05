@@ -26,7 +26,7 @@ use winit::{
 };
 
 use crate::{
-    flutter_application::text_input::TextInput,
+    flutter_application::{mouse_cursor::MouseCursor, text_input::TextInput},
     flutter_bindings::{
         FlutterCustomTaskRunners, FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
         FlutterEngineGetCurrentTime, FlutterEngineInitialize, FlutterEngineOnVsync,
@@ -56,12 +56,15 @@ use self::keyboard::Keyboard;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
 mod compositor;
 mod keyboard;
+mod message_codec;
+mod mouse_cursor;
 mod text_input;
 
 use compositor::Compositor;
 
 const PIXELS_PER_LINE: f64 = 10.0;
 const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
+const FLUTTER_MOUSECURSOR_CHANNEL: &str = "flutter/mousecursor";
 
 struct PointerState {
     virtual_id: i32,
@@ -501,7 +504,7 @@ impl FlutterApplication {
                 .to_vec();
         user_data.event_loop_proxy.lock().unwrap().send_event(Box::new(move |this| {
             if let Ok(channel) = channel {
-                if channel == "flutter/textinput" {
+                if channel == FLUTTER_TEXTINPUT_CHANNEL {
                     if let Ok(text_input) = serde_json::from_slice::<TextInput>(&data) {
                         this.keyboard.handle_textinput_message(text_input);
                     } else {
@@ -515,6 +518,14 @@ impl FlutterApplication {
                             0,
                         )
                     });
+                } else if channel == FLUTTER_MOUSECURSOR_CHANNEL {
+                    log::debug!("mousecursor bytes: {:#?}", std::str::from_utf8(&data));
+                    let data: Result<MouseCursor, _> = message_codec::from_slice(&data);
+                    log::debug!("mousecursor: {:#?}", data);
+                    // if let Ok(mouse_cursor) = serde_json::from_slice::<MouseCursor>(&data) {
+                    //     let MouseCursor::ActivateSystemCursor { device, kind } = mouse_cursor;
+                    //     log::info!("Set mouse cursor {device} to {kind}");
+                    // }
                 } else {
                         log::debug!(
                         "Unhandled platform message: channel = {channel}, message size = {}, message: {:?}",
