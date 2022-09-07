@@ -66,6 +66,14 @@ Everything is highly experimental. This project is far from being usable for rea
 - Only Linux is working in some aspects. The main reason is that the new winit API for keyboard handling hasn't been implemented for Windows yet. Also, there is no support for Metal right now for iOS/macOS.
 - Mobile is not a focus at the moment, but might come later.
 
+## Accessibility
+
+This is always a big topic for UI frameworks. Flutter has full support for accessibility, including screenreaders. However, as expected this relies on the shell to provide the operating system interoperation.
+
+Accessibility APIs differ widely between different operating systems, so this is hard to achieve with a project like this, where having a single codebase for all systems is a primary goal.
+
+However, luckily there is a project called [AccessKit](https://github.com/AccessKit/accesskit) that aims to provide a way to add accessibility to winit as a cross-platform solution, offloading all platform-specific code to that crate. It is still in its early stages and the longevity is unclear, but _if_ it succeeds in providing what it aims to do, it is a prime candidate to solve the issue for this project.
+
 ## License
 
 This project is licensed under the Apache 2.0 license. See [LICENSE](./LICENSE) for details.
