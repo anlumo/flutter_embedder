@@ -27,7 +27,7 @@ use winit::{
 };
 
 use crate::{
-    flutter_application::{mouse_cursor::MouseCursor, text_input::TextInput},
+    flutter_application::{mouse_cursor::MouseCursor, platform::Platform, text_input::TextInput},
     flutter_bindings::{
         FlutterCustomTaskRunners, FlutterEngine, FlutterEngineAOTData, FlutterEngineCollectAOTData,
         FlutterEngineGetCurrentTime, FlutterEngineInitialize, FlutterEngineOnVsync,
@@ -59,6 +59,7 @@ mod compositor;
 mod keyboard;
 mod message_codec;
 mod mouse_cursor;
+mod platform;
 mod text_input;
 
 use compositor::Compositor;
@@ -66,6 +67,7 @@ use compositor::Compositor;
 const PIXELS_PER_LINE: f64 = 10.0;
 const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
 const FLUTTER_MOUSECURSOR_CHANNEL: &str = "flutter/mousecursor";
+const FLUTTER_PLATFORM_CHANNEL: &str = "flutter/platform";
 
 struct PointerState {
     virtual_id: i32,
@@ -506,6 +508,7 @@ impl FlutterApplication {
                 .to_vec();
         user_data.event_loop_proxy.lock().unwrap().send_event(Box::new(move |this| {
             if let Ok(channel) = channel {
+                let mut response = None;
                 if channel == FLUTTER_TEXTINPUT_CHANNEL {
                     if let Ok(text_input) = serde_json::from_slice::<TextInput>(&data) {
                         this.keyboard.handle_textinput_message(text_input);
@@ -520,6 +523,10 @@ impl FlutterApplication {
                             0,
                         )
                     });
+                } else if channel == FLUTTER_PLATFORM_CHANNEL {
+                    if let Ok(message) = serde_json::from_slice(&data) {
+                        response = Platform::handle_message(this.engine, &message);
+                    }
                 } else if channel == FLUTTER_MOUSECURSOR_CHANNEL {
                     if let Ok(mouse_cursor) = message_codec::from_slice(&data) {
                         let MouseCursor::ActivateSystemCursor { kind, .. } = mouse_cursor;
@@ -534,16 +541,17 @@ impl FlutterApplication {
                         data.len(),
                         data,
                     );
-
-                    Self::unwrap_result(unsafe {
-                        FlutterEngineSendPlatformMessageResponse(
-                            this.engine,
-                            response_handle.0,
-                            null(),
-                            0,
-                        )
-                    });
                 }
+
+                Self::unwrap_result(unsafe {
+                    FlutterEngineSendPlatformMessageResponse(
+                        this.engine,
+                        response_handle.0,
+                        response.as_ref().map(|response| response.as_ptr()).unwrap_or_else(null),
+                        response.as_ref().map(|response| response.len()).unwrap_or(0) as _,
+                    )
+                });
+                drop(response);
             } else {
                 Self::unwrap_result(unsafe {
                     FlutterEngineSendPlatformMessageResponse(
