@@ -126,21 +126,19 @@ impl FlutterApplication {
             panic!("{icudtl_dat:?} not found.");
         }
         let (raw_instance, version, instance_extensions) = unsafe {
-            instance.as_hal::<Vulkan, _, _>(|instance| {
-                instance.map(|instance| {
-                    let raw_instance = instance.shared_instance().raw_instance();
-                    let raw_handle = raw_instance.handle().as_raw();
-                    (
-                        raw_handle,
-                        0, // skip check, we're using 1.3 but flutter only supports up to 1.2 right now //instance.shared_instance().driver_api_version(),
-                        instance
-                            .shared_instance()
-                            .extensions()
-                            .into_iter()
-                            .map(|&s| s.to_owned())
-                            .collect::<Vec<CString>>(),
-                    )
-                })
+            instance.as_hal::<Vulkan>().map(|instance| {
+                let raw_instance = instance.shared_instance().raw_instance();
+                let raw_handle = raw_instance.handle().as_raw();
+                (
+                    raw_handle,
+                    0, // skip check, we're using 1.3 but flutter only supports up to 1.2 right now //instance.shared_instance().driver_api_version(),
+                    instance
+                        .shared_instance()
+                        .extensions()
+                        .into_iter()
+                        .map(|&s| s.to_owned())
+                        .collect::<Vec<CString>>(),
+                )
             })
         }
         .expect("wgpu didn't choose Vulkan as rendering backend");
@@ -625,33 +623,30 @@ impl FlutterApplication {
         let user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
 
         let result = unsafe {
-            user_data.instance.as_hal::<Vulkan, _, _>(|instance| {
-                instance.and_then(|instance| {
-                    let shared = instance.shared_instance();
-                    let entry = shared.entry();
-                    let cname = CStr::from_ptr(name);
-                    if cname == CStr::from_bytes_with_nul(b"vkCreateInstance\0").unwrap() {
-                        Some(entry.fp_v1_0().create_instance as *mut c_void)
-                    } else if cname
-                        == CStr::from_bytes_with_nul(b"vkCreateDebugReportCallbackEXT\0").unwrap()
-                    {
-                        None
-                    } else if cname
-                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceExtensionProperties\0")
-                            .unwrap()
-                    {
-                        Some(entry.fp_v1_0().enumerate_instance_extension_properties as *mut c_void)
-                    } else if cname
-                        == CStr::from_bytes_with_nul(b"vkEnumerateInstanceLayerProperties\0")
-                            .unwrap()
-                    {
-                        Some(entry.fp_v1_0().enumerate_instance_layer_properties as *mut c_void)
-                    } else {
-                        entry
-                            .get_instance_proc_addr(shared.raw_instance().handle(), name)
-                            .map(|f| f as *mut c_void)
-                    }
-                })
+            user_data.instance.as_hal::<Vulkan>().and_then(|instance| {
+                let shared = instance.shared_instance();
+                let entry = shared.entry();
+                let cname = CStr::from_ptr(name);
+                if cname == CStr::from_bytes_with_nul(b"vkCreateInstance\0").unwrap() {
+                    Some(entry.fp_v1_0().create_instance as *mut c_void)
+                } else if cname
+                    == CStr::from_bytes_with_nul(b"vkCreateDebugReportCallbackEXT\0").unwrap()
+                {
+                    None
+                } else if cname
+                    == CStr::from_bytes_with_nul(b"vkEnumerateInstanceExtensionProperties\0")
+                        .unwrap()
+                {
+                    Some(entry.fp_v1_0().enumerate_instance_extension_properties as *mut c_void)
+                } else if cname
+                    == CStr::from_bytes_with_nul(b"vkEnumerateInstanceLayerProperties\0").unwrap()
+                {
+                    Some(entry.fp_v1_0().enumerate_instance_layer_properties as *mut c_void)
+                } else {
+                    entry
+                        .get_instance_proc_addr(shared.raw_instance().handle(), name)
+                        .map(|f| f as *mut c_void)
+                }
             })
         }
         .unwrap_or_else(null_mut);
