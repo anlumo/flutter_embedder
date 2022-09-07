@@ -36,6 +36,16 @@ Flutter shells also have to supply all of the interface with the native operatin
 
 In the Rust world, there is [winit](https://github.com/rust-windowing/winit), which is an abstraction over various platforms to provide a single API for creating windows and receiving events (like mouse and keyboard input). This mostly matches the needs of the Flutter embedder.
 
+### End Game
+
+Once all of this works, the plan is to create a library crate and publish on crates.io. If you want to create a wgpu-application with Flutter, you have to create a regular Rust binary project and add the crate as normal. Then in your code, you somewhere have to initialize the library and run it. This is also where you register your own Platform Widgets (which might use bevy or whatever you like).
+
+This is the same structure as used for the official shells.
+
+Note that the Flutter engine is built as a shared library, so it needs to be shipped along with your own binary and all of the Flutter resources.
+
+The web works completely differently there (since the engine is compiled to JavaScript, and there's HTML to bootstrap everything), so it's a non-goal for the project. However, there it's quite easy to use the official shell, because it allows defining a canvas as a platform widget, which then can be used for wgpu without any special preparations.
+
 ## Current State
 
 Everything is highly experimental. This project is far from being usable for real applications!
