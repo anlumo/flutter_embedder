@@ -53,6 +53,8 @@ Everything is highly experimental. This project is far from being usable for rea
   - They are implemented using an experimental winit API from a pull request, because the stable API does not supply the information necessary.
   - keydata is problematic, because it requires to supply the keyboard events in a specific platform-specific format, which we don't have.
   - textinput is a very complex API, because all of the complexity of handling text is offloaded to the shell. IME support is missing, as is autocomplete and dictionary support.
+- Only Linux is working in some aspects. The main reason is that the new winit API for keyboard handling hasn't been implemented for Windows yet. Also, there is no support for Metal right now for iOS/macOS.
+- Mobile is not a focus at the moment, but might come later.
 
 ## License
 
