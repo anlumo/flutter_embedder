@@ -479,6 +479,7 @@ dependencies = [
  "num-traits",
  "serde",
  "serde_json",
+ "serde_variant",
  "tokio",
  "wgpu",
  "wgpu-hal",
@@ -1293,6 +1294,15 @@ checksum = "e55a28e3aaef9d5ce0506d0a14dbba8054ddc7e499ef522dd8b26859ec9d4a44"
 dependencies = [
  "itoa",
  "ryu",
+ "serde",
+]
+
+[[package]]
+name = "serde_variant"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f988d71f968b960b45cf71e3210662f0b23906256c87820077e4f101225c494"
+dependencies = [
  "serde",
 ]
 

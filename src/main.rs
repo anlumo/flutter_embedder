@@ -196,6 +196,9 @@ fn main() -> Result<(), std::io::Error> {
                     } => {
                         app.key_event(device_id, event, is_synthetic);
                     }
+                    WindowEvent::Focused(focused) => {
+                        app.focused(focused);
+                    }
                     _ => {}
                 },
                 _ => {}

@@ -52,12 +52,13 @@ use crate::{
     utils::flutter_asset_bundle_is_valid,
 };
 
-use self::keyboard::Keyboard;
+use self::{keyboard::Keyboard, lifecycle::LifecycleState};
 
 // mod keyboard_event;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
 mod compositor;
 mod keyboard;
+mod lifecycle;
 mod message_codec;
 mod mouse_cursor;
 mod platform;
@@ -69,6 +70,7 @@ const PIXELS_PER_LINE: f64 = 10.0;
 const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
 const FLUTTER_MOUSECURSOR_CHANNEL: &str = "flutter/mousecursor";
 const FLUTTER_PLATFORM_CHANNEL: &str = "flutter/platform";
+const FLUTTER_LIFECYCLE_CHANNEL: &str = "flutter/lifecycle";
 
 struct PointerState {
     virtual_id: i32,
@@ -480,6 +482,27 @@ impl FlutterApplication {
 
     pub fn key_event(&mut self, _device_id: DeviceId, event: KeyEvent, synthesized: bool) {
         self.keyboard.key_event(self.engine, event, synthesized);
+    }
+
+    pub fn focused(&mut self, focused: bool) {
+        let channel = CString::new(FLUTTER_LIFECYCLE_CHANNEL).unwrap();
+        let lifecycle = serde_variant::to_variant_name(if focused {
+            &LifecycleState::Resumed
+        } else {
+            &LifecycleState::Inactive
+        })
+        .unwrap()
+        .as_bytes();
+        let message = FlutterPlatformMessage {
+            struct_size: size_of::<FlutterPlatformMessage>() as _,
+            channel: channel.as_ptr(),
+            message: lifecycle.as_ptr(),
+            message_size: lifecycle.len(),
+            response_handle: null(),
+        };
+        Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });
+        drop(message);
+        drop(channel);
     }
 
     pub fn schedule_frame(&self) {
