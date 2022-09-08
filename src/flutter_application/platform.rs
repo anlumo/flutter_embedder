@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
-use winit::{event_loop::EventLoopProxy, window::UserAttentionType};
+use winit::{
+    event_loop::EventLoopProxy,
+    window::{Fullscreen, UserAttentionType},
+};
 
 use crate::flutter_bindings::FlutterEngine;
 
@@ -60,6 +63,11 @@ impl Platform {
                     .request_user_attention(Some(UserAttentionType::Critical)),
                 HapticFeedbackType::SelectionClick => {}
             },
+            PlatformMessage::SystemSoundPlay(_) => {
+                application
+                    .window
+                    .request_user_attention(Some(UserAttentionType::Critical));
+            }
             PlatformMessage::SystemNavigatorPop => {
                 application
                     .user_data
@@ -68,6 +76,15 @@ impl Platform {
                     .unwrap()
                     .send_event(|_| true)
                     .unwrap();
+            }
+            PlatformMessage::SystemChromeSetEnabledSystemUIMode(mode) => {
+                if mode == SystemUiMode::Manual {
+                    application.window.set_fullscreen(None);
+                } else {
+                    application
+                        .window
+                        .set_fullscreen(Some(Fullscreen::Borderless(None)));
+                }
             }
             _ => {}
         }
@@ -130,7 +147,7 @@ pub(super) enum PlatformMessage {
     /// Specifies whether system overlays (e.g. the status bar on Android or iOS)
     /// should be `light` or `dark`.
     #[serde(rename = "SystemChrome.setSystemUIOverlayStyle")]
-    SystemChromeSetEnabledSystemUIMode(SystemUiOverlayStyle),
+    SystemChromeSetEnabledSystemUIOverlayStyle(SystemUiOverlayStyle),
     /// Tells the operating system to close the application, or the closest
     /// equivalent.
     #[serde(rename = "SystemNavigator.pop")]
