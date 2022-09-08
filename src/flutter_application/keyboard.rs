@@ -32,25 +32,22 @@ pub struct Keyboard {
     client: Option<u64>,
     modifiers: ModifiersState,
     editing_state: TextEditingValue,
-    clipboard: Clipboard,
+    clipboard: Arc<Mutex<Clipboard>>,
     input_action: TextInputAction,
     channel: CString,
 }
 
-impl Default for Keyboard {
-    fn default() -> Self {
+impl Keyboard {
+    pub(super) fn new(clipboard: Arc<Mutex<Clipboard>>) -> Self {
         Self {
             client: None,
             modifiers: Default::default(),
             editing_state: Default::default(),
-            clipboard: Clipboard::new().unwrap(),
+            clipboard,
             input_action: TextInputAction::Unspecified,
             channel: CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap(),
         }
     }
-}
-
-impl Keyboard {
     pub(super) fn modifiers_changed(&mut self, state: ModifiersState) {
         self.modifiers = state;
     }
@@ -301,7 +298,7 @@ impl Keyboard {
                                     .collect();
                                 editing_state.text.replace_range(selection.clone(), "");
                                 editing_state.selection_extent = editing_state.selection_base;
-                                self.clipboard.set_text(text).unwrap();
+                                self.clipboard.lock().unwrap().set_text(text).unwrap();
                             }
                         }
                         Key::Character("c") if self.modifiers.action_key() => {
@@ -312,7 +309,7 @@ impl Keyboard {
                                     .skip(selection.start)
                                     .take(selection.end - selection.start)
                                     .collect();
-                                self.clipboard.set_text(text).unwrap();
+                                self.clipboard.lock().unwrap().set_text(text).unwrap();
                             }
                         }
                         Key::Character("v") if self.modifiers.action_key() => {

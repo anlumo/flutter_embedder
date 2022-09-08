@@ -13,6 +13,7 @@ use std::{
     time::Duration,
 };
 
+use arboard::Clipboard;
 use ash::vk::Handle;
 use log::Level;
 use tokio::runtime::Runtime;
@@ -23,7 +24,7 @@ use winit::{
     event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
     event_loop::EventLoopProxy,
     keyboard::ModifiersState,
-    window::CursorIcon,
+    window::{CursorIcon, Window},
 };
 
 use crate::{
@@ -81,7 +82,8 @@ unsafe impl Send for SendFlutterTask {}
 struct SendFlutterPlatformMessageResponseHandle(*const FlutterPlatformMessageResponseHandle);
 unsafe impl Send for SendFlutterPlatformMessageResponseHandle {}
 
-pub type FlutterApplicationCallback = Box<dyn FnOnce(&mut FlutterApplication) + 'static + Send>;
+pub type FlutterApplicationCallback =
+    Box<dyn FnOnce(&mut FlutterApplication) -> bool + 'static + Send>;
 
 struct FlutterApplicationUserData {
     event_loop_proxy: Mutex<EventLoopProxy<FlutterApplicationCallback>>,
@@ -101,7 +103,9 @@ pub struct FlutterApplication {
     mice: HashMap<DeviceId, PointerState>,
     current_mouse_id: i32,
     runtime: Arc<Runtime>,
+    clipboard: Arc<Mutex<Clipboard>>,
     keyboard: Keyboard,
+    window: Arc<Window>,
     user_data: Box<FlutterApplicationUserData>,
     set_cursor_icon: Box<dyn Fn(Option<CursorIcon>) + 'static>,
 }
@@ -116,6 +120,7 @@ impl FlutterApplication {
         device: Device,
         queue: Queue,
         event_loop_proxy: EventLoopProxy<FlutterApplicationCallback>,
+        window: Arc<Window>,
         set_cursor_icon: impl Fn(Option<CursorIcon>) + 'static,
     ) -> FlutterApplication {
         if !flutter_asset_bundle_is_valid(asset_bundle_path) {
@@ -208,6 +213,8 @@ impl FlutterApplication {
             main_thread: std::thread::current().id(),
         });
 
+        let clipboard = Arc::new(Mutex::new(Clipboard::new().unwrap()));
+
         let mut instance = Self {
             engine: null_mut(),
             compositor: Compositor::new(),
@@ -219,8 +226,10 @@ impl FlutterApplication {
             mice: Default::default(),
             current_mouse_id: 0,
             runtime,
-            keyboard: Default::default(),
+            keyboard: Keyboard::new(clipboard.clone()),
+            clipboard,
             user_data,
+            window,
             set_cursor_icon: Box::new(set_cursor_icon),
         };
 
@@ -311,6 +320,7 @@ impl FlutterApplication {
                     FlutterEngineSendWindowMetricsEvent(application.engine, &metrics)
                 });
                 drop(metrics);
+                false
             }))
             .ok()
             .unwrap();
@@ -457,6 +467,7 @@ impl FlutterApplication {
                         FlutterEngineSendPointerEvent(application.engine, &event, 1)
                     });
                     drop(event);
+                    false
                 }))
                 .ok()
                 .unwrap();
@@ -525,7 +536,7 @@ impl FlutterApplication {
                     });
                 } else if channel == FLUTTER_PLATFORM_CHANNEL {
                     if let Ok(message) = serde_json::from_slice(&data) {
-                        response = Platform::handle_message(this.engine, &message);
+                        response = Platform::handle_message(this.engine, message, this);
                     }
                 } else if channel == FLUTTER_MOUSECURSOR_CHANNEL {
                     if let Ok(mouse_cursor) = message_codec::from_slice(&data) {
@@ -563,6 +574,7 @@ impl FlutterApplication {
                 });
             }
             drop(response_handle);
+            false
         })).ok().unwrap();
     }
 
@@ -598,6 +610,7 @@ impl FlutterApplication {
                 Self::unwrap_result(unsafe {
                     FlutterEngineOnVsync(this.engine, baton, time, time + 1000000000 / 60)
                 });
+                false
             }))
             .ok()
             .unwrap();
@@ -703,6 +716,7 @@ impl FlutterApplication {
                 .send_event(Box::new(move |application| unsafe {
                     Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
                     drop(task);
+                    false
                 }))
                 .ok()
                 .unwrap();
@@ -718,6 +732,7 @@ impl FlutterApplication {
                     .send_event(Box::new(move |application| unsafe {
                         Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
                         drop(task);
+                        false
                     }))
                     .ok()
                     .unwrap();

@@ -118,6 +118,7 @@ fn main() -> Result<(), std::io::Error> {
             device,
             queue,
             event_loop.create_proxy(),
+            window.clone(),
             move |cursor| {
                 if let Some(cursor) = cursor {
                     inner_window.set_cursor_visible(true);
@@ -140,7 +141,9 @@ fn main() -> Result<(), std::io::Error> {
             *control_flow = ControlFlow::Wait;
             match event {
                 Event::UserEvent(handler) => {
-                    handler(&mut app);
+                    if handler(&mut app) {
+                        *control_flow = ControlFlow::Exit;
+                    }
                 }
                 Event::RedrawRequested(_window_id) => {
                     app.schedule_frame();

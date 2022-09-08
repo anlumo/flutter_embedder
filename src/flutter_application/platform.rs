@@ -1,16 +1,76 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
+use winit::{event_loop::EventLoopProxy, window::UserAttentionType};
 
 use crate::flutter_bindings::FlutterEngine;
+
+use super::FlutterApplication;
 
 pub(super) struct Platform;
 
 impl Platform {
     pub(super) fn handle_message(
         _engine: FlutterEngine,
-        message: /*PlatformMessage*/ &Value,
+        message: PlatformMessage,
+        application: &FlutterApplication,
     ) -> Option<Vec<u8>> {
         log::debug!("Platform message: {message:?}");
+        match message {
+            PlatformMessage::SystemChromeSetApplicationSwitcherDescription { label, .. } => {
+                application.window.set_title(&label);
+            }
+            PlatformMessage::ClipboardSetData { text } => {
+                application
+                    .clipboard
+                    .lock()
+                    .unwrap()
+                    .set_text(text)
+                    .expect("Failed setting clipboard");
+            }
+            PlatformMessage::ClipboardGetData(_) => {
+                let text = application
+                    .clipboard
+                    .lock()
+                    .unwrap()
+                    .get_text()
+                    .expect("Failed reading clipboard");
+                return Some(
+                    serde_json::to_vec(&serde_json::json!({
+                        "text": text,
+                    }))
+                    .unwrap(),
+                );
+            }
+            PlatformMessage::ClipboardHasStrings(_) => {
+                let has_strings = application.clipboard.lock().unwrap().get_text().is_ok();
+                return Some(
+                    serde_json::to_vec(&serde_json::json!({
+                        "value": has_strings,
+                    }))
+                    .unwrap(),
+                );
+            }
+            PlatformMessage::HapticFeedbackVibrate(feedback_type) => match feedback_type {
+                HapticFeedbackType::LightImpact => {}
+                HapticFeedbackType::MediumImpact => application
+                    .window
+                    .request_user_attention(Some(UserAttentionType::Informational)),
+                HapticFeedbackType::HeavyImpact => application
+                    .window
+                    .request_user_attention(Some(UserAttentionType::Critical)),
+                HapticFeedbackType::SelectionClick => {}
+            },
+            PlatformMessage::SystemNavigatorPop => {
+                application
+                    .user_data
+                    .event_loop_proxy
+                    .lock()
+                    .unwrap()
+                    .send_event(|_| true)
+                    .unwrap();
+            }
+            _ => {}
+        }
         None
     }
 }
@@ -25,6 +85,10 @@ pub(super) enum PlatformMessage {
     /// the argument, a [String], from the system clipboard.
     #[serde(rename = "Clipboard.getData")]
     ClipboardGetData(ClipboardFormat),
+    /// Should return `{"value":true}` iff the clipboard contains string data,
+    /// otherwise `{"value":false}`.
+    #[serde(rename = "Clipboard.hasStrings")]
+    ClipboardHasStrings(ClipboardFormat),
     /// Triggers a system-default haptic response.
     #[serde(rename = "HapticFeedback.vibrate")]
     HapticFeedbackVibrate(HapticFeedbackType),
@@ -63,6 +127,35 @@ pub(super) enum PlatformMessage {
     /// Specifies the [SystemUiMode] for the application.
     #[serde(rename = "SystemChrome.setEnabledSystemUIMode")]
     SystemChromeSetEnabledSystemUIMode(SystemUiMode),
+    /// Specifies whether system overlays (e.g. the status bar on Android or iOS)
+    /// should be `light` or `dark`.
+    #[serde(rename = "SystemChrome.setSystemUIOverlayStyle")]
+    SystemChromeSetEnabledSystemUIMode(SystemUiOverlayStyle),
+    /// Tells the operating system to close the application, or the closest
+    /// equivalent.
+    #[serde(rename = "SystemNavigator.pop")]
+    SystemNavigatorPop,
+    /// Undocumented but sent when a listener for the event below is registered
+    #[serde(rename = "SystemChrome.setSystemUIChangeListener")]
+    SystemChromeSetSystemUIChangeListener,
+    /// Outgoing. The user has changed the visibility of
+    /// the system overlays. This is relevant when using [SystemUiMode]s
+    /// through [SystemChrome.setEnabledSystemUIMode].
+    /// The boolean indicates whether the system overlays are visible
+    /// (meaning that the application is not in fullscreen).
+    #[serde(rename = "SystemChrome.systemUIChange")]
+    SystemChromeSystemUIChange((bool)),
+    /// Restores the system overlays to the last settings provided via
+    /// [SystemChromeSetEnabledSystemUIOverlays]. May be used when the platform force
+    /// enables/disables UI elements.
+    ///
+    /// For example, when the Android keyboard disables hidden status and navigation bars,
+    /// this can be called to re-disable the bars when the keyboard is closed.
+    ///
+    /// On Android, the system UI cannot be changed until 1 second after the previous
+    /// change. This is to prevent malware from permanently hiding navigation buttons.
+    #[serde(rename = "SystemChrome.restoreSystemUIOverlays")]
+    SystemChromeRestoreSystemUIOverlays,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -229,4 +322,16 @@ pub(super) enum SystemUiMode {
     /// Omitting both overlays will result in the same configuration as
     /// [SystemUiMode.leanBack].
     Manual,
+}
+
+/// Specifies a preference for the style of the system overlays.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub(super) enum SystemUiOverlayStyle {
+    /// System overlays should be drawn with a light color. Intended for
+    /// applications with a dark background.
+    Light,
+    /// System overlays should be drawn with a dark color. Intended for
+    /// applications with a light background.
+    Dark,
 }
