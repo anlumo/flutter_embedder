@@ -3,7 +3,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
-use tokio::runtime::Runtime;
+use tokio::runtime::Builder;
 use wgpu::{
     Backends, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode,
     RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages,
@@ -56,7 +56,7 @@ fn main() -> Result<(), std::io::Error> {
         .unwrap();
     // window.set_outer_position(PhysicalPosition::new(100, 100));
 
-    let rt = Arc::new(Runtime::new()?);
+    let rt = Arc::new(Builder::new_multi_thread().build()?);
     let inner_rt = rt.clone();
 
     rt.block_on(async move {

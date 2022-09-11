@@ -52,7 +52,7 @@ use crate::{
     utils::flutter_asset_bundle_is_valid,
 };
 
-use self::{keyboard::Keyboard, lifecycle::LifecycleState};
+use self::{keyboard::Keyboard, lifecycle::LifecycleState, task_runner::TaskRunner};
 
 // mod keyboard_event;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
@@ -62,6 +62,7 @@ mod lifecycle;
 mod message_codec;
 mod mouse_cursor;
 mod platform;
+mod task_runner;
 mod text_input;
 
 use compositor::Compositor;
@@ -92,6 +93,7 @@ struct FlutterApplicationUserData {
     instance: Arc<Instance>,
     runtime: Arc<Runtime>,
     main_thread: ThreadId,
+    render_task_runner: TaskRunner,
 }
 
 pub struct FlutterApplication {
@@ -213,6 +215,7 @@ impl FlutterApplication {
             instance: instance.clone(),
             runtime: runtime.clone(),
             main_thread: std::thread::current().id(),
+            render_task_runner: TaskRunner::new("renderer".to_owned()),
         });
 
         let clipboard = Arc::new(Mutex::new(Clipboard::new().unwrap()));
@@ -237,17 +240,26 @@ impl FlutterApplication {
 
         let flutter_compositor = instance.compositor.flutter_compositor(&instance);
 
-        let task_runner = FlutterTaskRunnerDescription {
+        let platform_task_runner = FlutterTaskRunnerDescription {
             struct_size: size_of::<FlutterTaskRunnerDescription>() as _,
             user_data: &*instance.user_data as *const _ as _,
             runs_task_on_current_thread_callback: Some(Self::runs_task_on_current_thread_callback),
             post_task_callback: Some(Self::post_task_callback),
             identifier: 0,
         };
+        let render_task_runner = FlutterTaskRunnerDescription {
+            struct_size: size_of::<FlutterTaskRunnerDescription>() as _,
+            user_data: &instance.user_data.render_task_runner as *const _ as _,
+            runs_task_on_current_thread_callback: Some(
+                TaskRunner::runs_task_on_current_thread_callback,
+            ),
+            post_task_callback: Some(TaskRunner::post_task_callback),
+            identifier: 2,
+        };
         let custom_task_runners = FlutterCustomTaskRunners {
             struct_size: size_of::<FlutterCustomTaskRunners>() as _,
-            platform_task_runner: &task_runner,
-            render_task_runner: &task_runner,
+            platform_task_runner: &platform_task_runner,
+            render_task_runner: &render_task_runner,
             thread_priority_setter: None,
         };
 
@@ -283,13 +295,16 @@ impl FlutterApplication {
             )
         });
 
+        instance.user_data.render_task_runner.run(instance.engine);
+
         drop(enabled_device_extensions);
         drop(enabled_instance_extensions);
         drop(instance_extensions);
         drop(device_extensions);
         drop(flutter_compositor);
         drop(custom_task_runners);
-        drop(task_runner);
+        drop(platform_task_runner);
+        drop(render_task_runner);
         drop(argv);
 
         instance
