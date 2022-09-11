@@ -542,6 +542,7 @@ impl FlutterApplication {
                 .to_vec();
         user_data.event_loop_proxy.lock().unwrap().send_event(Box::new(move |this| {
             if let Ok(channel) = channel {
+                log::debug!("Platform message on channel {channel}.");
                 let mut response = None;
                 if channel == FLUTTER_TEXTINPUT_CHANNEL {
                     if let Ok(text_input) = serde_json::from_slice::<TextInput>(&data) {
@@ -549,14 +550,6 @@ impl FlutterApplication {
                     } else {
                         log::debug!("Unknown textinput message: {:?}", std::str::from_utf8(&data));
                     }
-                    Self::unwrap_result(unsafe {
-                        FlutterEngineSendPlatformMessageResponse(
-                            this.engine,
-                            response_handle.0,
-                            null(),
-                            0,
-                        )
-                    });
                 } else if channel == FLUTTER_PLATFORM_CHANNEL {
                     if let Ok(message) = serde_json::from_slice(&data) {
                         response = Platform::handle_message(this.engine, message, this);
