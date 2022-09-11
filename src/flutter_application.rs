@@ -497,7 +497,7 @@ impl FlutterApplication {
             struct_size: size_of::<FlutterPlatformMessage>() as _,
             channel: channel.as_ptr(),
             message: lifecycle.as_ptr(),
-            message_size: lifecycle.len(),
+            message_size: lifecycle.len() as _,
             response_handle: null(),
         };
         Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });

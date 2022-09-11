@@ -1,9 +1,5 @@
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
-use winit::{
-    event_loop::EventLoopProxy,
-    window::{Fullscreen, UserAttentionType},
-};
+use winit::window::{Fullscreen, UserAttentionType};
 
 use crate::flutter_bindings::FlutterEngine;
 
@@ -74,7 +70,8 @@ impl Platform {
                     .event_loop_proxy
                     .lock()
                     .unwrap()
-                    .send_event(|_| true)
+                    .send_event(Box::new(|_| true))
+                    .ok()
                     .unwrap();
             }
             PlatformMessage::SystemChromeSetEnabledSystemUIMode(mode) => {
@@ -161,7 +158,7 @@ pub(super) enum PlatformMessage {
     /// The boolean indicates whether the system overlays are visible
     /// (meaning that the application is not in fullscreen).
     #[serde(rename = "SystemChrome.systemUIChange")]
-    SystemChromeSystemUIChange((bool)),
+    SystemChromeSystemUIChange((bool,)),
     /// Restores the system overlays to the last settings provided via
     /// [SystemChromeSetEnabledSystemUIOverlays]. May be used when the platform force
     /// enables/disables UI elements.
@@ -247,7 +244,7 @@ pub(super) enum SystemUiOverlay {
 /// These modes mimic Android-specific display setups.
 ///
 /// Used by [SystemChrome.setEnabledSystemUIMode].
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub(super) enum SystemUiMode {
     /// Fullscreen display with status and navigation bars presentable by tapping

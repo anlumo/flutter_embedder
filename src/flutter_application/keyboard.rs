@@ -2,6 +2,7 @@ use std::{
     ffi::CString,
     mem::size_of,
     ptr::{null, null_mut},
+    sync::{Arc, Mutex},
 };
 
 use arboard::Clipboard;
@@ -313,7 +314,11 @@ impl Keyboard {
                             }
                         }
                         Key::Character("v") if self.modifiers.action_key() => {
-                            if let Ok(text) = self.clipboard.get_text() {
+                            let text = {
+                                let mut clipboard = self.clipboard.lock().unwrap();
+                                clipboard.get_text()
+                            };
+                            if let Ok(text) = text {
                                 self.insert_text(&text);
                             }
                         }
