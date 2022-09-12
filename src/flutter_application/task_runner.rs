@@ -35,7 +35,7 @@ impl TaskRunner {
             .name(name.clone())
             .spawn(move || {
                 let engine = new_receiver.blocking_recv().unwrap();
-                let rt = Builder::new_current_thread().build().unwrap();
+                let rt = Builder::new_current_thread().enable_time().build().unwrap();
                 let local = LocalSet::new();
                 local.block_on(&rt, async move {
                     log::debug!("Waiting for tasks on {:?}", std::thread::current().name());
