@@ -138,6 +138,13 @@ impl<'de> Deserializer<'de> {
         Ok(u32::from_le_bytes(self.read_bytes()?) as _)
     }
 
+    fn read_alignment(&mut self, alignment: usize) {
+        let offset = self.pos % alignment;
+        if offset > 0 {
+            self.pos += alignment - offset;
+        }
+    }
+
     fn read_data(&mut self, len: usize) -> Result<&[u8], Error> {
         if self.pos + len > self.input.len() {
             Err(Error::Eof)
@@ -291,6 +298,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
         V: de::Visitor<'de>,
     {
         if self.read_field_type()? == FlutterStandardField::Float64 {
+            self.read_alignment(8);
             visitor.visit_f64(f64::from_le_bytes(self.read_bytes()?))
         } else {
             Err(Error::InvalidFieldType)
