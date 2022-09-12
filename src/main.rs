@@ -1,5 +1,5 @@
 #![allow(dead_code)]
-#![feature(once_cell)]
+#![feature(once_cell, result_option_inspect)]
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;

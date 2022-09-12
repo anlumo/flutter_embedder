@@ -52,7 +52,10 @@ use crate::{
     utils::flutter_asset_bundle_is_valid,
 };
 
-use self::{keyboard::Keyboard, lifecycle::LifecycleState, task_runner::TaskRunner};
+use self::{
+    keyboard::Keyboard, lifecycle::LifecycleState, platform_views::PlatformViewsHandler,
+    task_runner::TaskRunner,
+};
 
 // mod keyboard_event;
 // use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
@@ -62,6 +65,7 @@ mod lifecycle;
 mod message_codec;
 mod mouse_cursor;
 mod platform;
+mod platform_views;
 mod task_runner;
 mod text_input;
 
@@ -72,6 +76,7 @@ const FLUTTER_TEXTINPUT_CHANNEL: &str = "flutter/textinput";
 const FLUTTER_MOUSECURSOR_CHANNEL: &str = "flutter/mousecursor";
 const FLUTTER_PLATFORM_CHANNEL: &str = "flutter/platform";
 const FLUTTER_LIFECYCLE_CHANNEL: &str = "flutter/lifecycle";
+const FLUTTER_PLATFORM_VIEWS_CHANNEL: &str = "flutter/platform_views";
 
 struct PointerState {
     virtual_id: i32,
@@ -110,6 +115,7 @@ pub struct FlutterApplication {
     clipboard: Arc<Mutex<Clipboard>>,
     keyboard: Keyboard,
     window: Arc<Window>,
+    platform_views_handler: PlatformViewsHandler,
     user_data: Box<FlutterApplicationUserData>,
     set_cursor_icon: Box<dyn Fn(Option<CursorIcon>) + 'static>,
 }
@@ -233,6 +239,7 @@ impl FlutterApplication {
             runtime,
             keyboard: Keyboard::new(clipboard.clone()),
             clipboard,
+            platform_views_handler: Default::default(),
             user_data,
             window,
             set_cursor_icon: Box::new(set_cursor_icon),
@@ -545,7 +552,6 @@ impl FlutterApplication {
         message: *const FlutterPlatformMessage,
         user_data: *mut c_void,
     ) {
-        log::debug!("platform_message_callback");
         let message = unsafe { &*message };
         let channel = unsafe { CStr::from_ptr(message.channel) }
             .to_str()
@@ -576,6 +582,13 @@ impl FlutterApplication {
                         (this.set_cursor_icon)(kind.into());
                     } else {
                         log::error!("Invalid mousecursor event received! {data:?}");
+                    }
+                } else if channel == FLUTTER_PLATFORM_VIEWS_CHANNEL {
+                    if let Ok(message) = serde_json::from_slice(&data) {
+                        log::debug!("Platform Views Message: {message:?}");
+                        response = this.platform_views_handler.handle_platform_views_message(message);
+                    } else {
+                        log::error!("Failed decoding {FLUTTER_PLATFORM_VIEWS_CHANNEL} message {:?}", String::from_utf8(data));
                     }
                 } else {
                         log::debug!(

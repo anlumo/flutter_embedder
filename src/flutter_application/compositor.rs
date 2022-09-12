@@ -1,4 +1,4 @@
-use std::{ffi::c_void, mem::size_of, ptr::null_mut};
+use std::{cell::Cell, ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
 use wgpu::{
@@ -19,11 +19,15 @@ use crate::{
     },
 };
 
-pub struct Compositor {}
+pub struct Compositor {
+    platform_view_count: Cell<i64>,
+}
 
 impl Compositor {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            platform_view_count: Cell::new(0),
+        }
     }
 
     pub fn flutter_compositor(&self, application: &FlutterApplication) -> FlutterCompositor {
@@ -127,10 +131,14 @@ impl Compositor {
             //     depth_stencil_attachment: None,
             // });
 
-            for &layer in unsafe { std::slice::from_raw_parts(layers, layers_count as _) } {
-                let layer = unsafe { &*layer };
+            for (idx, &layer) in unsafe { std::slice::from_raw_parts(layers, layers_count as _) }
+                .iter()
+                .map(|&layer| unsafe { &*layer } as &FlutterLayer)
+                .enumerate()
+            {
                 let offset = layer.offset;
                 let size = layer.size;
+                log::debug!("Layer {idx} type {}", layer.type_);
                 match layer.type_ {
                     x if x == FlutterLayerContentType_kFlutterLayerContentTypeBackingStore => {
                         let backing_store = unsafe { &*layer.__bindgen_anon_1.backing_store };
@@ -166,7 +174,10 @@ impl Compositor {
                         );
                     }
                     x if x == FlutterLayerContentType_kFlutterLayerContentTypePlatformView => {
-                        todo!()
+                        log::error!(
+                            "Rendering platform view {}: not implemented yet!",
+                            unsafe { &*layer.__bindgen_anon_1.platform_view }.identifier
+                        );
                     }
                     _ => panic!("Invalid layer type"),
                 }

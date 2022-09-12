@@ -499,6 +499,7 @@ impl<'de, 'a> de::Deserializer<'de> for &'a mut Deserializer<'de> {
     where
         V: de::Visitor<'de>,
     {
+        log::trace!("deserialize_enum {_variants:?}");
         visitor.visit_enum(Enum::new(self))
     }
 
