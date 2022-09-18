@@ -19,6 +19,8 @@ use crate::{
     },
 };
 
+use super::FlutterApplicationUserData;
+
 pub struct Compositor {
     platform_view_count: Cell<i64>,
 }
@@ -33,7 +35,7 @@ impl Compositor {
     pub fn flutter_compositor(&self, application: &FlutterApplication) -> FlutterCompositor {
         FlutterCompositor {
             struct_size: size_of::<FlutterCompositor>() as _,
-            user_data: application as *const FlutterApplication as _,
+            user_data: &*application.user_data as *const FlutterApplicationUserData as _,
             create_backing_store_callback: Some(Self::create_backing_store_callback),
             collect_backing_store_callback: Some(Self::backing_store_collect_callback),
             present_layers_callback: Some(Self::present_layers_callback),
@@ -46,24 +48,27 @@ impl Compositor {
         backing_store_out: *mut FlutterBackingStore,
         user_data: *mut c_void,
     ) -> bool {
-        let application =
-            unsafe { &*(user_data as *const FlutterApplication) as &FlutterApplication };
+        let application_user_data = unsafe {
+            &*(user_data as *const FlutterApplicationUserData) as &FlutterApplicationUserData
+        };
 
-        let texture = application.device().create_texture(&TextureDescriptor {
-            label: Some("Flutter Backing Store"),
-            size: wgpu::Extent3d {
-                width: unsafe { *config }.size.width as _,
-                height: unsafe { *config }.size.height as _,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: TextureDimension::D2,
-            format: TextureFormat::Bgra8Unorm,
-            usage: TextureUsages::COPY_SRC
-                | TextureUsages::RENDER_ATTACHMENT
-                | TextureUsages::TEXTURE_BINDING,
-        });
+        let texture = application_user_data
+            .device
+            .create_texture(&TextureDescriptor {
+                label: Some("Flutter Backing Store"),
+                size: wgpu::Extent3d {
+                    width: unsafe { *config }.size.width as _,
+                    height: unsafe { *config }.size.height as _,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: TextureDimension::D2,
+                format: TextureFormat::Bgra8Unorm,
+                usage: TextureUsages::COPY_SRC
+                    | TextureUsages::RENDER_ATTACHMENT
+                    | TextureUsages::TEXTURE_BINDING,
+            });
 
         let mut image = None;
         unsafe {
@@ -102,14 +107,14 @@ impl Compositor {
         layers_count: size_t,
         user_data: *mut c_void,
     ) -> bool {
-        let flutter = unsafe { &*(user_data as *const FlutterApplication) };
+        let application_user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
 
-        let frame = flutter
-            .surface()
+        let frame = application_user_data
+            .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
-        let mut encoder = flutter
-            .device()
+        let mut encoder = application_user_data
+            .device
             .create_command_encoder(&CommandEncoderDescriptor { label: None });
         {
             // encoder.clear_texture(&frame.texture, &ImageSubresourceRange::default());
@@ -183,7 +188,7 @@ impl Compositor {
                 }
             }
         }
-        flutter.queue().submit(Some(encoder.finish()));
+        application_user_data.queue.submit(Some(encoder.finish()));
         frame.present();
         true
     }

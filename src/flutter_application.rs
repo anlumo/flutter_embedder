@@ -97,6 +97,9 @@ struct FlutterApplicationUserData {
     event_loop_proxy: Mutex<EventLoopProxy<FlutterApplicationCallback>>,
     instance: Arc<Instance>,
     runtime: Arc<Runtime>,
+    device: Device,
+    surface: Surface,
+    queue: Queue,
     main_thread: ThreadId,
     render_task_runner: TaskRunner,
 }
@@ -104,10 +107,7 @@ struct FlutterApplicationUserData {
 pub struct FlutterApplication {
     engine: FlutterEngine,
     compositor: Compositor,
-    surface: Surface,
     instance: Arc<Instance>,
-    device: Device,
-    queue: Queue,
     aot_data: Vec<FlutterEngineAOTData>,
     mice: HashMap<DeviceId, PointerState>,
     current_mouse_id: i32,
@@ -220,6 +220,9 @@ impl FlutterApplication {
             event_loop_proxy: Mutex::new(event_loop_proxy),
             instance: instance.clone(),
             runtime: runtime.clone(),
+            device,
+            surface,
+            queue,
             main_thread: std::thread::current().id(),
             render_task_runner: TaskRunner::new("renderer".to_owned()),
         });
@@ -229,10 +232,7 @@ impl FlutterApplication {
         let mut instance = Self {
             engine: null_mut(),
             compositor: Compositor::new(),
-            surface,
             instance,
-            device,
-            queue,
             aot_data: vec![],
             mice: Default::default(),
             current_mouse_id: 0,
@@ -532,16 +532,16 @@ impl FlutterApplication {
     }
 
     pub fn surface(&self) -> &Surface {
-        &self.surface
+        &self.user_data.surface
     }
     pub fn instance(&self) -> &Instance {
         &self.instance
     }
     pub fn device(&self) -> &Device {
-        &self.device
+        &self.user_data.device
     }
     pub fn queue(&self) -> &Queue {
-        &self.queue
+        &self.user_data.queue
     }
 
     pub fn current_time() -> u64 {
