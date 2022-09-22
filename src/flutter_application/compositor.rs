@@ -14,12 +14,28 @@ use crate::{
         FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan, FlutterBackingStore__bindgen_ty_1,
         FlutterCompositor, FlutterLayer,
         FlutterLayerContentType_kFlutterLayerContentTypeBackingStore,
-        FlutterLayerContentType_kFlutterLayerContentTypePlatformView, FlutterVulkanBackingStore,
-        FlutterVulkanImage,
+        FlutterLayerContentType_kFlutterLayerContentTypePlatformView, FlutterRect,
+        FlutterRoundedRect, FlutterTransformation, FlutterVulkanBackingStore, FlutterVulkanImage,
     },
 };
 
 use super::FlutterApplicationUserData;
+
+#[derive(Debug, Clone)]
+pub enum PlatformViewMutation {
+    /// Indicates that the Flutter application requested that an opacity be
+    /// applied to the platform view.
+    Opacity(f64),
+    /// Indicates that the Flutter application requested that the platform view be
+    /// clipped using a rectangle.
+    ClipRect(FlutterRect),
+    /// Indicates that the Flutter application requested that the platform view be
+    /// clipped using a rounded rectangle.
+    ClipRoundedRect(FlutterRoundedRect),
+    /// Indicates that the Flutter application requested that the platform view be
+    /// transformed before composition.
+    Transformation(FlutterTransformation),
+}
 
 pub struct Compositor {
     platform_view_count: Cell<i64>,
@@ -136,6 +152,9 @@ impl Compositor {
             //     depth_stencil_attachment: None,
             // });
 
+            let mut platform_views_handler =
+                application_user_data.platform_views_handler.lock().unwrap();
+
             for (idx, &layer) in unsafe { std::slice::from_raw_parts(layers, layers_count as _) }
                 .iter()
                 .map(|&layer| unsafe { &*layer } as &FlutterLayer)
@@ -179,9 +198,15 @@ impl Compositor {
                         );
                     }
                     x if x == FlutterLayerContentType_kFlutterLayerContentTypePlatformView => {
-                        log::error!(
-                            "Rendering platform view {}: not implemented yet!",
-                            unsafe { &*layer.__bindgen_anon_1.platform_view }.identifier
+                        let platform_view = unsafe { &*layer.__bindgen_anon_1.platform_view };
+                        platform_views_handler.render_platform_view(
+                            platform_view.identifier as i32,
+                            unsafe {
+                                std::slice::from_raw_parts(
+                                    platform_view.mutations,
+                                    platform_view.mutations_count as usize,
+                                )
+                            },
                         );
                     }
                     _ => panic!("Invalid layer type"),

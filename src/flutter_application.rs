@@ -52,6 +52,14 @@ use crate::{
     utils::flutter_asset_bundle_is_valid,
 };
 
+pub use self::{
+    compositor::PlatformViewMutation,
+    platform_views::{PlatformView, PlatformViewData},
+};
+pub use crate::flutter_bindings::{
+    FlutterRect, FlutterRoundedRect, FlutterSize, FlutterTransformation,
+};
+
 use self::{
     keyboard::Keyboard, lifecycle::LifecycleState, platform_views::PlatformViewsHandler,
     task_runner::TaskRunner,
@@ -92,16 +100,19 @@ unsafe impl Send for SendFlutterPlatformMessageResponseHandle {}
 
 pub type FlutterApplicationCallback =
     Box<dyn FnOnce(&mut FlutterApplication) -> bool + 'static + Send>;
+pub type RenderPlatformViewCallback =
+    Box<dyn FnMut(&mut FlutterApplicationUserData) + 'static + Send>;
 
-struct FlutterApplicationUserData {
+pub struct FlutterApplicationUserData {
     event_loop_proxy: Mutex<EventLoopProxy<FlutterApplicationCallback>>,
-    instance: Arc<Instance>,
-    runtime: Arc<Runtime>,
-    device: Device,
-    surface: Surface,
-    queue: Queue,
+    pub instance: Arc<Instance>,
+    pub runtime: Arc<Runtime>,
+    pub device: Device,
+    pub surface: Surface,
+    pub queue: Queue,
     main_thread: ThreadId,
     render_task_runner: TaskRunner,
+    platform_views_handler: Mutex<PlatformViewsHandler>,
 }
 
 pub struct FlutterApplication {
@@ -115,7 +126,6 @@ pub struct FlutterApplication {
     clipboard: Arc<Mutex<Clipboard>>,
     keyboard: Keyboard,
     window: Arc<Window>,
-    platform_views_handler: PlatformViewsHandler,
     user_data: Box<FlutterApplicationUserData>,
     set_cursor_icon: Box<dyn Fn(Option<CursorIcon>) + 'static>,
 }
@@ -225,6 +235,7 @@ impl FlutterApplication {
             queue,
             main_thread: std::thread::current().id(),
             render_task_runner: TaskRunner::new("renderer".to_owned()),
+            platform_views_handler: Mutex::default(),
         });
 
         let clipboard = Arc::new(Mutex::new(Clipboard::new().unwrap()));
@@ -239,7 +250,6 @@ impl FlutterApplication {
             runtime,
             keyboard: Keyboard::new(clipboard.clone()),
             clipboard,
-            platform_views_handler: Default::default(),
             user_data,
             window,
             set_cursor_icon: Box::new(set_cursor_icon),
@@ -544,6 +554,26 @@ impl FlutterApplication {
         &self.user_data.queue
     }
 
+    pub fn register_platform_view_type(
+        &mut self,
+        view_type: &str,
+        generator: impl Fn(&PlatformViewData) -> Option<Box<dyn PlatformView>> + 'static,
+    ) {
+        self.user_data
+            .platform_views_handler
+            .lock()
+            .unwrap()
+            .register_platform_view_type(view_type, generator);
+    }
+
+    pub fn unregister_platform_view_type(&mut self, view_type: &str) {
+        self.user_data
+            .platform_views_handler
+            .lock()
+            .unwrap()
+            .unregister_platform_view_type(view_type);
+    }
+
     pub fn current_time() -> u64 {
         unsafe { FlutterEngineGetCurrentTime() }
     }
@@ -586,7 +616,7 @@ impl FlutterApplication {
                 } else if channel == FLUTTER_PLATFORM_VIEWS_CHANNEL {
                     if let Ok(message) = serde_json::from_slice(&data) {
                         log::debug!("Platform Views Message: {message:?}");
-                        response = this.platform_views_handler.handle_platform_views_message(message);
+                        response = this.user_data.platform_views_handler.lock().unwrap().handle_platform_views_message(message);
                     } else {
                         log::error!("Failed decoding {FLUTTER_PLATFORM_VIEWS_CHANNEL} message {:?}", String::from_utf8(data));
                     }

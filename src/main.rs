@@ -16,7 +16,10 @@ use winit::{
 };
 
 mod flutter_application;
+mod test_platform_view;
 use flutter_application::{FlutterApplication, FlutterApplicationCallback};
+
+use crate::test_platform_view::TestPlatformView;
 
 mod action_key;
 mod keyboard_logical_key_map;
@@ -128,6 +131,8 @@ fn main() -> Result<(), std::io::Error> {
                 }
             },
         );
+
+        app.register_platform_view_type("test", |data| Some(Box::new(TestPlatformView::new(data))));
 
         app.run();
 
