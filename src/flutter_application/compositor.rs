@@ -162,7 +162,10 @@ impl Compositor {
             {
                 let offset = layer.offset;
                 let size = layer.size;
-                log::debug!("Layer {idx} type {}", layer.type_);
+                log::debug!(
+                    "Layer {idx} type {} offset {offset:?} size {size:?}",
+                    layer.type_
+                );
                 match layer.type_ {
                     x if x == FlutterLayerContentType_kFlutterLayerContentTypeBackingStore => {
                         let backing_store = unsafe { &*layer.__bindgen_anon_1.backing_store };
