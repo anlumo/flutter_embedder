@@ -21,6 +21,7 @@ arboard = "2.1.1"
 num-derive = "0.3.3"
 num-traits = "0.2.15"
 serde_variant = "0.1.1"
+bytemuck = { version = "1.12.1", features = ["derive"] }
 
 [build-dependencies]
 bindgen = "0.60.1"

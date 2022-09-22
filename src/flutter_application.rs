@@ -110,6 +110,7 @@ pub struct FlutterApplicationUserData {
     pub device: Device,
     pub surface: Surface,
     pub queue: Queue,
+    compositor: Compositor,
     main_thread: ThreadId,
     render_task_runner: TaskRunner,
     platform_views_handler: Mutex<PlatformViewsHandler>,
@@ -117,7 +118,6 @@ pub struct FlutterApplicationUserData {
 
 pub struct FlutterApplication {
     engine: FlutterEngine,
-    compositor: Compositor,
     instance: Arc<Instance>,
     aot_data: Vec<FlutterEngineAOTData>,
     mice: HashMap<DeviceId, PointerState>,
@@ -226,6 +226,7 @@ impl FlutterApplication {
             .map(|arg| arg.as_bytes().as_ptr() as _)
             .collect();
 
+        let compositor = Compositor::new(&device);
         let user_data = Box::new(FlutterApplicationUserData {
             event_loop_proxy: Mutex::new(event_loop_proxy),
             instance: instance.clone(),
@@ -233,6 +234,7 @@ impl FlutterApplication {
             device,
             surface,
             queue,
+            compositor,
             main_thread: std::thread::current().id(),
             render_task_runner: TaskRunner::new("renderer".to_owned()),
             platform_views_handler: Mutex::default(),
@@ -242,7 +244,6 @@ impl FlutterApplication {
 
         let mut instance = Self {
             engine: null_mut(),
-            compositor: Compositor::new(),
             instance,
             aot_data: vec![],
             mice: Default::default(),
@@ -255,7 +256,7 @@ impl FlutterApplication {
             set_cursor_icon: Box::new(set_cursor_icon),
         };
 
-        let flutter_compositor = instance.compositor.flutter_compositor(&instance);
+        let flutter_compositor = Compositor::flutter_compositor(&instance);
 
         let platform_task_runner = FlutterTaskRunnerDescription {
             struct_size: size_of::<FlutterTaskRunnerDescription>() as _,
