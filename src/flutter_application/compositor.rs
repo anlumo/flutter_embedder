@@ -1,9 +1,10 @@
-use std::{ffi::c_void, mem::size_of, ptr::null_mut};
+use std::{cell::Cell, ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
 use wgpu::{
-    include_wgsl, Color, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment,
-    RenderPassDescriptor, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    include_wgsl, Color, CommandEncoderDescriptor, LoadOp, Operations, PresentMode,
+    RenderPassColorAttachment, RenderPassDescriptor, SurfaceConfiguration, TextureDescriptor,
+    TextureDimension, TextureFormat, TextureUsages,
 };
 use wgpu_hal::api::Vulkan;
 
@@ -56,10 +57,11 @@ pub struct Compositor {
     render_pipeline: wgpu::RenderPipeline,
     texture_bind_group_layout: wgpu::BindGroupLayout,
     uniform_bind_group_layout: wgpu::BindGroupLayout,
+    previous_viewport_size: Cell<(u32, u32)>,
 }
 
 impl Compositor {
-    pub fn new(device: &wgpu::Device) -> Self {
+    pub fn new(device: &wgpu::Device, viewport_size: (u32, u32)) -> Self {
         let shader = device.create_shader_module(include_wgsl!("flutter.wgsl"));
         let texture_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -142,6 +144,7 @@ impl Compositor {
             }),
             texture_bind_group_layout,
             uniform_bind_group_layout,
+            previous_viewport_size: Cell::new(viewport_size),
         }
     }
 
@@ -268,6 +271,29 @@ impl Compositor {
     ) -> bool {
         let application_user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
 
+        let viewport_size = application_user_data.viewport_size.get();
+        if viewport_size
+            != application_user_data
+                .compositor
+                .previous_viewport_size
+                .get()
+        {
+            application_user_data.surface.configure(
+                &application_user_data.device,
+                &SurfaceConfiguration {
+                    usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_DST,
+                    format: TextureFormat::Bgra8Unorm,
+                    width: viewport_size.0 as _,
+                    height: viewport_size.1 as _,
+                    present_mode: PresentMode::Fifo,
+                },
+            );
+            application_user_data
+                .compositor
+                .previous_viewport_size
+                .set(viewport_size);
+        }
+
         let frame = application_user_data
             .surface
             .get_current_texture()
@@ -313,7 +339,7 @@ impl Compositor {
                         bytemuck::cast_slice(&[FlutterRenderUniform {
                             offset: [layer.offset.x as f32, layer.offset.y as f32],
                             size: [layer.size.width as f32, layer.size.height as f32],
-                            viewport: [viewport_size.0, viewport_size.1],
+                            viewport: [viewport_size.0 as _, viewport_size.1 as _],
                         }])
                         .to_vec()
                     } else {

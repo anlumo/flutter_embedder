@@ -115,7 +115,7 @@ pub struct FlutterApplicationUserData {
     main_thread: ThreadId,
     render_task_runner: TaskRunner,
     platform_views_handler: Mutex<PlatformViewsHandler>,
-    viewport_size: Cell<(f32, f32)>,
+    viewport_size: Cell<(u32, u32)>,
 }
 
 pub struct FlutterApplication {
@@ -229,7 +229,7 @@ impl FlutterApplication {
             .collect();
 
         let inner_size = window.inner_size();
-        let compositor = Compositor::new(&device);
+        let compositor = Compositor::new(&device, (inner_size.width, inner_size.height));
         let user_data = Box::new(FlutterApplicationUserData {
             event_loop_proxy: Mutex::new(event_loop_proxy),
             instance: instance.clone(),
@@ -351,7 +351,7 @@ impl FlutterApplication {
         };
         log::debug!("setting metrics to {metrics:?}");
         Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
-        self.user_data.viewport_size.set((width as _, height as _));
+        self.user_data.viewport_size.set((width, height));
         drop(metrics);
     }
 
