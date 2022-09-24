@@ -291,7 +291,7 @@ impl Keyboard {
                         }
                         Key::Character("x") if self.modifiers.action_key() => {
                             if selection.start != selection.end {
-                                let text = editing_state
+                                let text: String = editing_state
                                     .text
                                     .chars()
                                     .skip(selection.start)
@@ -304,7 +304,7 @@ impl Keyboard {
                         }
                         Key::Character("c") if self.modifiers.action_key() => {
                             if selection.start != selection.end {
-                                let text = editing_state
+                                let text: String = editing_state
                                     .text
                                     .chars()
                                     .skip(selection.start)

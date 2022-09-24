@@ -195,7 +195,7 @@ impl Compositor {
             ..Default::default()
         });
 
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+        let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
             layout: &application_user_data.compositor.texture_bind_group_layout,
             entries: &[
                 wgpu::BindGroupEntry {
@@ -239,7 +239,7 @@ impl Compositor {
 
         let image = image.unwrap();
         let user_data = Box::new(CompositorBackingBufferInformation {
-            texture_bind_group: bind_group,
+            texture_bind_group,
             uniform_bind_group,
             image,
             uniform_buffer,
@@ -288,9 +288,9 @@ impl Compositor {
                     resolve_target: None,
                     ops: Operations {
                         load: LoadOp::Clear(Color {
-                            r: 0.0,
+                            r: 1.0,
                             g: 1.0,
-                            b: 0.0,
+                            b: 1.0,
                             a: 1.0,
                         }),
                         store: true,
@@ -350,7 +350,6 @@ impl Compositor {
                             &uniform_buffers[idx],
                         );
 
-                        // TODO: actually bind texture
                         // TODO: fix shader to use the texture
 
                         render_pass.set_bind_group(0, &information.texture_bind_group, &[]);

@@ -3,6 +3,11 @@ struct FlutterRenderUniform {
     size: vec2<f32>,
 }
 
+@group(0) @binding(0)
+var t_flutter: texture_2d<f32>;
+@group(0) @binding(1)
+var s_flutter: sampler;
+
 @group(1) @binding(0)
 var<uniform> render_information: FlutterRenderUniform;
 
@@ -25,5 +30,5 @@ fn vs_main(
 
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
-    return vec4<f32>(0.3, 0.2, 0.1, 1.0);
+    return textureSample(t_flutter, s_flutter, (in.vert_pos + 1.0) * 0.5);
 }
