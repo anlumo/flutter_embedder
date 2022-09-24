@@ -1,4 +1,5 @@
 use std::{
+    cell::Cell,
     collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
@@ -114,6 +115,7 @@ pub struct FlutterApplicationUserData {
     main_thread: ThreadId,
     render_task_runner: TaskRunner,
     platform_views_handler: Mutex<PlatformViewsHandler>,
+    viewport_size: Cell<(f32, f32)>,
 }
 
 pub struct FlutterApplication {
@@ -226,6 +228,7 @@ impl FlutterApplication {
             .map(|arg| arg.as_bytes().as_ptr() as _)
             .collect();
 
+        let inner_size = window.inner_size();
         let compositor = Compositor::new(&device);
         let user_data = Box::new(FlutterApplicationUserData {
             event_loop_proxy: Mutex::new(event_loop_proxy),
@@ -238,6 +241,7 @@ impl FlutterApplication {
             main_thread: std::thread::current().id(),
             render_task_runner: TaskRunner::new("renderer".to_owned()),
             platform_views_handler: Mutex::default(),
+            viewport_size: Cell::new((inner_size.width as _, inner_size.height as _)),
         });
 
         let clipboard = Arc::new(Mutex::new(Clipboard::new().unwrap()));
@@ -333,32 +337,22 @@ impl FlutterApplication {
     }
 
     pub fn metrics_changed(&self, width: u32, height: u32, pixel_ratio: f64, x: i32, y: i32) {
-        self.user_data
-            .event_loop_proxy
-            .lock()
-            .unwrap()
-            .send_event(Box::new(move |application| {
-                let metrics = FlutterWindowMetricsEvent {
-                    struct_size: size_of::<FlutterWindowMetricsEvent>() as _,
-                    width: width as _,
-                    height: height as _,
-                    pixel_ratio,
-                    left: x.max(0) as _,
-                    top: y.max(0) as _,
-                    physical_view_inset_top: 0.0,
-                    physical_view_inset_right: 0.0,
-                    physical_view_inset_bottom: 0.0,
-                    physical_view_inset_left: 0.0,
-                };
-                log::debug!("setting metrics to {metrics:?}");
-                Self::unwrap_result(unsafe {
-                    FlutterEngineSendWindowMetricsEvent(application.engine, &metrics)
-                });
-                drop(metrics);
-                false
-            }))
-            .ok()
-            .unwrap();
+        let metrics = FlutterWindowMetricsEvent {
+            struct_size: size_of::<FlutterWindowMetricsEvent>() as _,
+            width: width as _,
+            height: height as _,
+            pixel_ratio,
+            left: x.max(0) as _,
+            top: y.max(0) as _,
+            physical_view_inset_top: 0.0,
+            physical_view_inset_right: 0.0,
+            physical_view_inset_bottom: 0.0,
+            physical_view_inset_left: 0.0,
+        };
+        log::debug!("setting metrics to {metrics:?}");
+        Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
+        self.user_data.viewport_size.set((width as _, height as _));
+        drop(metrics);
     }
 
     fn get_mouse(&mut self, device_id: DeviceId) -> &mut PointerState {

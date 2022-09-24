@@ -1,6 +1,7 @@
 struct FlutterRenderUniform {
     offset: vec2<f32>,
     size: vec2<f32>,
+    viewport: vec2<f32>,
 }
 
 @group(0) @binding(0)
@@ -30,7 +31,9 @@ fn vs_main(
     // 2 ( 1, -1)
     // 3 ( 1,  1)
 
-    out.clip_position = vec4<f32>(out.vert_pos, 0.0, 1.0);
+    out.clip_position = vec4<f32>(
+        out.vert_pos * render_information.size / render_information.viewport + render_information.offset / render_information.viewport,
+        0.0, 1.0);
     return out;
 }
 

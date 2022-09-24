@@ -2,9 +2,8 @@ use std::{ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
 use wgpu::{
-    include_wgsl, util::DeviceExt, Color, CommandEncoderDescriptor, Extent3d, ImageCopyTextureBase,
-    LoadOp, Operations, Origin3d, PipelineLayout, RenderPassColorAttachment, RenderPassDescriptor,
-    Texture, TextureAspect, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
+    include_wgsl, Color, CommandEncoderDescriptor, LoadOp, Operations, RenderPassColorAttachment,
+    RenderPassDescriptor, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 use wgpu_hal::api::Vulkan;
 
@@ -43,6 +42,7 @@ pub enum PlatformViewMutation {
 struct FlutterRenderUniform {
     offset: [f32; 2],
     size: [f32; 2],
+    viewport: [f32; 2],
 }
 
 struct CompositorBackingBufferInformation {
@@ -280,7 +280,6 @@ impl Compositor {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
-            // encoder.clear_texture(&frame.texture, &ImageSubresourceRange::default());
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(RenderPassColorAttachment {
@@ -305,6 +304,7 @@ impl Compositor {
 
             let layers = unsafe { std::slice::from_raw_parts(layers, layers_count as _) };
 
+            let viewport_size = application_user_data.viewport_size.get();
             let uniform_buffers: Vec<_> = layers
                 .iter()
                 .map(|layer| {
@@ -313,6 +313,7 @@ impl Compositor {
                         bytemuck::cast_slice(&[FlutterRenderUniform {
                             offset: [layer.offset.x as f32, layer.offset.y as f32],
                             size: [layer.size.width as f32, layer.size.height as f32],
+                            viewport: [viewport_size.0, viewport_size.1],
                         }])
                         .to_vec()
                     } else {
