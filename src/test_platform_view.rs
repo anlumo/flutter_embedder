@@ -9,7 +9,7 @@ impl TestPlatformView {
 }
 
 impl PlatformView for TestPlatformView {
-    fn render(&mut self, mutations: &[PlatformViewMutation]) {
-        log::debug!("Render test platform view: {mutations:?}");
+    fn render(&mut self, offset: (f64, f64), size: (f64, f64), mutations: &[PlatformViewMutation]) {
+        log::debug!("Render test platform view at {offset:?} size {size:?}: {mutations:?}");
     }
 }

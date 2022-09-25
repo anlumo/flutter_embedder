@@ -35,7 +35,7 @@ pub(super) enum PlatformViewMessage {
 }
 
 pub trait PlatformView: Send + 'static {
-    fn render(&mut self, mutations: &[PlatformViewMutation]);
+    fn render(&mut self, offset: (f64, f64), size: (f64, f64), mutations: &[PlatformViewMutation]);
     fn clear_focus(&mut self) {}
     fn pointer_event(&mut self, _event: Value) {}
 }
@@ -83,6 +83,8 @@ impl PlatformViewsHandler {
     pub(super) fn render_platform_view(
         &mut self,
         id: i32,
+        offset: (f64, f64),
+        size: (f64, f64),
         mutations: &[*const FlutterPlatformViewMutation],
     ) {
         let mutations: Vec<_> = mutations
@@ -119,7 +121,7 @@ impl PlatformViewsHandler {
             })
             .collect();
         if let Some((_, view)) = self.views.get_mut(&id) {
-            view.render(&mutations);
+            view.render(offset, size, &mutations);
         } else {
             log::error!("Unknown platform view with identifier {id}");
         }

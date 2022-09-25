@@ -387,6 +387,8 @@ impl Compositor {
                         let platform_view = unsafe { &*layer.__bindgen_anon_1.platform_view };
                         platform_views_handler.render_platform_view(
                             platform_view.identifier as i32,
+                            (offset.x, offset.y),
+                            (size.width, size.height),
                             unsafe {
                                 std::slice::from_raw_parts(
                                     platform_view.mutations,
