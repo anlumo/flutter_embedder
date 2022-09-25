@@ -377,8 +377,6 @@ impl Compositor {
                             &uniform_buffers[idx],
                         );
 
-                        // TODO: fix shader to use the texture
-
                         render_pass.set_bind_group(0, &information.texture_bind_group, &[]);
                         render_pass.set_bind_group(1, &information.uniform_bind_group, &[]);
                         render_pass.draw(0..4, 0..1);
