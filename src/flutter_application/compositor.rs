@@ -11,7 +11,7 @@ use wgpu_hal::api::Vulkan;
 use crate::{
     flutter_application::FlutterApplication,
     flutter_bindings::{
-        size_t, FlutterBackingStore, FlutterBackingStoreConfig,
+        FlutterBackingStore, FlutterBackingStoreConfig,
         FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan, FlutterBackingStore__bindgen_ty_1,
         FlutterCompositor, FlutterLayer,
         FlutterLayerContentType_kFlutterLayerContentTypeBackingStore,
@@ -184,6 +184,7 @@ impl Compositor {
             usage: TextureUsages::COPY_SRC
                 | TextureUsages::RENDER_ATTACHMENT
                 | TextureUsages::TEXTURE_BINDING,
+            view_formats: &[TextureFormat::Bgra8Unorm],
         });
 
         let texture_view = texture.create_view(&wgpu::TextureViewDescriptor::default());
@@ -266,7 +267,7 @@ impl Compositor {
     }
     extern "C" fn present_layers_callback(
         layers: *mut *const FlutterLayer,
-        layers_count: size_t,
+        layers_count: usize,
         user_data: *mut c_void,
     ) -> bool {
         let application_user_data = unsafe { &*(user_data as *const FlutterApplicationUserData) };
@@ -286,6 +287,8 @@ impl Compositor {
                     width: viewport_size.0 as _,
                     height: viewport_size.1 as _,
                     present_mode: PresentMode::Fifo,
+                    alpha_mode: wgpu::CompositeAlphaMode::Auto,
+                    view_formats: vec![TextureFormat::Bgra8Unorm],
                 },
             );
             application_user_data
@@ -390,7 +393,7 @@ impl Compositor {
                             unsafe {
                                 std::slice::from_raw_parts(
                                     platform_view.mutations,
-                                    platform_view.mutations_count as usize,
+                                    platform_view.mutations_count,
                                 )
                             },
                         );

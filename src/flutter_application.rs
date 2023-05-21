@@ -96,8 +96,33 @@ struct PointerState {
 struct SendFlutterTask(FlutterTask);
 unsafe impl Send for SendFlutterTask {}
 
+impl SendFlutterTask {
+    fn run(&self, engine: FlutterEngine) -> FlutterEngineResult {
+        unsafe { FlutterEngineRunTask(engine, &self.0) }
+    }
+}
+
 struct SendFlutterPlatformMessageResponseHandle(*const FlutterPlatformMessageResponseHandle);
 unsafe impl Send for SendFlutterPlatformMessageResponseHandle {}
+
+impl SendFlutterPlatformMessageResponseHandle {
+    fn send_response(&self, engine: FlutterEngine, response: Option<&[u8]>) -> FlutterEngineResult {
+        unsafe {
+            FlutterEngineSendPlatformMessageResponse(
+                engine,
+                self.0,
+                response
+                    .as_ref()
+                    .map(|response| response.as_ptr())
+                    .unwrap_or_else(null),
+                response
+                    .as_ref()
+                    .map(|response| response.len())
+                    .unwrap_or(0) as _,
+            )
+        }
+    }
+}
 
 pub type FlutterApplicationCallback =
     Box<dyn FnOnce(&mut FlutterApplication) -> bool + 'static + Send>;
@@ -133,6 +158,7 @@ pub struct FlutterApplication {
 }
 
 impl FlutterApplication {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         runtime: Arc<Runtime>,
         asset_bundle_path: &Path,
@@ -164,7 +190,7 @@ impl FlutterApplication {
                     instance
                         .shared_instance()
                         .extensions()
-                        .into_iter()
+                        .iter()
                         .map(|&s| s.to_owned())
                         .collect::<Vec<CString>>(),
                 )
@@ -183,7 +209,7 @@ impl FlutterApplication {
                             device.raw_queue().as_raw(),
                             device
                                 .enabled_device_extensions()
-                                .into_iter()
+                                .iter()
                                 .map(|&s| s.to_owned())
                                 .collect::<Vec<CString>>(),
                         )
@@ -309,7 +335,7 @@ impl FlutterApplication {
 
         Self::unwrap_result(unsafe {
             FlutterEngineInitialize(
-                FLUTTER_ENGINE_VERSION.into(),
+                FLUTTER_ENGINE_VERSION as _,
                 &config as _,
                 &args as _,
                 &*instance.user_data as *const _ as _,
@@ -323,10 +349,6 @@ impl FlutterApplication {
         drop(enabled_instance_extensions);
         drop(instance_extensions);
         drop(device_extensions);
-        drop(flutter_compositor);
-        drop(custom_task_runners);
-        drop(platform_task_runner);
-        drop(render_task_runner);
         drop(argv);
 
         instance
@@ -348,25 +370,22 @@ impl FlutterApplication {
             physical_view_inset_right: 0.0,
             physical_view_inset_bottom: 0.0,
             physical_view_inset_left: 0.0,
+            display_id: 0,
         };
         log::debug!("setting metrics to {metrics:?}");
         Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
         self.user_data.viewport_size.set((width, height));
-        drop(metrics);
     }
 
     fn get_mouse(&mut self, device_id: DeviceId) -> &mut PointerState {
-        if !self.mice.contains_key(&device_id) {
+        if let std::collections::hash_map::Entry::Vacant(e) = self.mice.entry(device_id) {
             let virtual_id = self.current_mouse_id;
             self.current_mouse_id += 1;
-            self.mice.insert(
-                device_id,
-                PointerState {
-                    virtual_id,
-                    position: PhysicalPosition::new(0.0, 0.0),
-                    held_buttons: 0,
-                },
-            );
+            e.insert(PointerState {
+                virtual_id,
+                position: PhysicalPosition::new(0.0, 0.0),
+                held_buttons: 0,
+            });
             self.send_pointer_event(device_id, FlutterPointerPhase_kAdd, None);
         }
         self.mice.get_mut(&device_id).unwrap()
@@ -387,6 +406,7 @@ impl FlutterApplication {
         }
         let new_buttons_held = mouse.held_buttons != 0;
 
+        #[allow(clippy::collapsible_else_if)]
         self.send_pointer_event(
             device_id,
             if state == ElementState::Pressed {
@@ -469,7 +489,7 @@ impl FlutterApplication {
             let event = FlutterPointerEvent {
                 struct_size: size_of::<FlutterPointerEvent>() as _,
                 phase,
-                timestamp: Self::current_time(),
+                timestamp: Self::current_time() as _,
                 x: mouse.position.x,
                 y: mouse.position.y,
                 device: mouse.virtual_id,
@@ -495,7 +515,6 @@ impl FlutterApplication {
                     Self::unwrap_result(unsafe {
                         FlutterEngineSendPointerEvent(application.engine, &event, 1)
                     });
-                    drop(event);
                     false
                 }))
                 .ok()
@@ -528,7 +547,6 @@ impl FlutterApplication {
             response_handle: null(),
         };
         Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });
-        drop(message);
         drop(channel);
     }
 
@@ -623,26 +641,10 @@ impl FlutterApplication {
                     );
                 }
 
-                Self::unwrap_result(unsafe {
-                    FlutterEngineSendPlatformMessageResponse(
-                        this.engine,
-                        response_handle.0,
-                        response.as_ref().map(|response| response.as_ptr()).unwrap_or_else(null),
-                        response.as_ref().map(|response| response.len()).unwrap_or(0) as _,
-                    )
-                });
-                drop(response);
+                Self::unwrap_result(response_handle.send_response(this.engine, response.as_deref()));
             } else {
-                Self::unwrap_result(unsafe {
-                    FlutterEngineSendPlatformMessageResponse(
-                        this.engine,
-                        response_handle.0,
-                        null(),
-                        0,
-                    )
-                });
+                Self::unwrap_result(response_handle.send_response(this.engine, None));
             }
-            drop(response_handle);
             false
         })).ok().unwrap();
     }
@@ -782,9 +784,8 @@ impl FlutterApplication {
                 .event_loop_proxy
                 .lock()
                 .unwrap()
-                .send_event(Box::new(move |application| unsafe {
-                    Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
-                    drop(task);
+                .send_event(Box::new(move |application| {
+                    Self::unwrap_result(task.run(application.engine));
                     false
                 }))
                 .ok()
@@ -798,9 +799,8 @@ impl FlutterApplication {
                 .await;
 
                 event_loop_proxy
-                    .send_event(Box::new(move |application| unsafe {
-                        Self::unwrap_result(FlutterEngineRunTask(application.engine, &task.0));
-                        drop(task);
+                    .send_event(Box::new(move |application| {
+                        Self::unwrap_result(task.run(application.engine));
                         false
                     }))
                     .ok()

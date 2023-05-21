@@ -1,12 +1,12 @@
 #![allow(dead_code)]
-#![feature(once_cell, result_option_inspect)]
+#![feature(result_option_inspect)]
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;
 use tokio::runtime::Builder;
 use wgpu::{
-    Backends, DeviceDescriptor, Features, Instance, Limits, PowerPreference, PresentMode,
-    RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages,
+    Backends, DeviceDescriptor, Features, Instance, InstanceDescriptor, Limits, PowerPreference,
+    PresentMode, RequestAdapterOptions, SurfaceConfiguration, TextureFormat, TextureUsages,
 };
 use winit::{
     dpi::PhysicalPosition,
@@ -63,8 +63,12 @@ fn main() -> Result<(), std::io::Error> {
     let inner_rt = rt.clone();
 
     rt.block_on(async move {
-        let instance = Instance::new(Backends::VULKAN);
-        let surface = unsafe { instance.create_surface(&window) };
+        let instance = Instance::new(InstanceDescriptor {
+            backends: Backends::VULKAN,
+            dx12_shader_compiler: wgpu::Dx12Compiler::Fxc, // we don't use DX12 anyways
+        });
+        let window = Arc::new(window);
+        let surface = unsafe { instance.create_surface(window.as_ref()) }.unwrap();
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: PowerPreference::default(),
@@ -88,28 +92,19 @@ fn main() -> Result<(), std::io::Error> {
 
         let size = window.inner_size();
 
-        log::debug!(
-            "Supported formats: {:?}",
-            surface.get_supported_formats(&adapter)
-        );
-        let formats = surface.get_supported_formats(&adapter);
-        let format = formats
-            .into_iter()
-            .find(|&format| format == TextureFormat::Bgra8Unorm)
-            .expect("Adapter doesn't support BGRA8 render buffer.");
-
         surface.configure(
             &device,
             &SurfaceConfiguration {
                 usage: TextureUsages::RENDER_ATTACHMENT | TextureUsages::COPY_DST,
-                format,
+                format: TextureFormat::Bgra8Unorm,
                 width: size.width,
                 height: size.height,
                 present_mode: PresentMode::Fifo,
+                alpha_mode: wgpu::CompositeAlphaMode::Opaque,
+                view_formats: vec![TextureFormat::Bgra8Unorm],
             },
         );
 
-        let window = Arc::new(window);
         let inner_window = window.clone();
 
         let mut app = FlutterApplication::new(

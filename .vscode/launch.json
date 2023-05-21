@@ -23,7 +23,7 @@
                 "RUST_LOG": "debug,wgpu_core=warn",
                 "WAYLAND_DISPLAY": ""
             },
-            "args": ["../../homebox/fomebox/build/flutter_assets/"],
+            "args": ["../flutter_embedder_test/build/flutter_assets/"],
             "cwd": "${workspaceFolder}"
         }
     ]

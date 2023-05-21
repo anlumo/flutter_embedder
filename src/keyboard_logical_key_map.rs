@@ -6,7 +6,7 @@ pub fn translate_logical_key(key: Key<'static>) -> Option<u64> {
     Some(match key {
         Key::Character(c) => {
             let mut buffer = [0u8; 8];
-            c.as_bytes().read(&mut buffer).ok()?;
+            c.as_bytes().read_exact(&mut buffer).ok()?;
             u64::from_le_bytes(buffer)
         }
         Key::Space => 0x00000000020,
