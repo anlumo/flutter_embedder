@@ -519,7 +519,7 @@ impl Into<Option<CursorIcon>> for MouseCursorKind {
         Some(match self {
             MouseCursorKind::None => return None,
             MouseCursorKind::Basic => CursorIcon::Default,
-            MouseCursorKind::Click => CursorIcon::Hand,
+            MouseCursorKind::Click => CursorIcon::Pointer,
             MouseCursorKind::Forbidden => CursorIcon::NotAllowed,
             MouseCursorKind::Wait => CursorIcon::Wait,
             MouseCursorKind::Progress => CursorIcon::Progress,

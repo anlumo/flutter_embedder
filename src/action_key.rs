@@ -1,17 +1,17 @@
-use winit::keyboard::ModifiersState;
+use winit::event::Modifiers;
 
 pub trait ActionKey {
     fn action_key(&self) -> bool;
 }
 
-impl ActionKey for ModifiersState {
+impl ActionKey for Modifiers {
     #[cfg(not(any(target_os = "macos", target_os = "ios")))]
     fn action_key(&self) -> bool {
-        self.control_key()
+        self.state().control_key()
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     fn action_key(&self) -> bool {
-        self.super_key()
+        self.state().super_key()
     }
 }

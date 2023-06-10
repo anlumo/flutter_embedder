@@ -7,8 +7,8 @@ use std::{
 
 use arboard::Clipboard;
 use winit::{
-    event::{ElementState, KeyEvent},
-    keyboard::{Key, ModifiersState},
+    event::{ElementState, KeyEvent, Modifiers},
+    keyboard::Key,
 };
 
 use crate::{
@@ -31,7 +31,7 @@ use super::{
 
 pub struct Keyboard {
     client: Option<u64>,
-    modifiers: ModifiersState,
+    modifiers: Modifiers,
     editing_state: TextEditingValue,
     clipboard: Arc<Mutex<Clipboard>>,
     input_action: TextInputAction,
@@ -49,13 +49,13 @@ impl Keyboard {
             channel: CString::new(FLUTTER_TEXTINPUT_CHANNEL).unwrap(),
         }
     }
-    pub(super) fn modifiers_changed(&mut self, state: ModifiersState) {
+    pub(super) fn modifiers_changed(&mut self, state: Modifiers) {
         self.modifiers = state;
     }
 
     fn move_home(&mut self) {
         self.editing_state.selection_base = Some(0);
-        if !self.modifiers.shift_key() {
+        if !self.modifiers.state().shift_key() {
             self.editing_state.selection_extent = Some(0);
         }
     }
@@ -63,7 +63,7 @@ impl Keyboard {
     fn move_end(&mut self) {
         let len = self.editing_state.text.chars().count();
         self.editing_state.selection_extent = Some(len as _);
-        if !self.modifiers.shift_key() {
+        if !self.modifiers.state().shift_key() {
             self.editing_state.selection_base = self.editing_state.selection_extent;
         }
     }
@@ -87,14 +87,14 @@ impl Keyboard {
 
     pub(super) fn key_event(&mut self, engine: FlutterEngine, event: KeyEvent, synthesized: bool) {
         log::debug!(
-            "keyboard input: logical {:?} physical {:?} (Translated {:?}, {:?})",
+            "keyboard input: virtual {:?} scancode {:?} (Translated {:?}, {:?})",
             event.logical_key,
             event.physical_key,
-            translate_logical_key(event.logical_key),
+            translate_logical_key(&event.logical_key),
             translate_physical_key(event.physical_key),
         );
         if let (Some(logical), Some(physical)) = (
-            translate_logical_key(event.logical_key),
+            translate_logical_key(&event.logical_key),
             translate_physical_key(event.physical_key),
         ) {
             // let flutter_event = FlutterKeyboardEvent::Linux {
@@ -156,30 +156,28 @@ impl Keyboard {
                 }
                 ElementState::Released => FlutterKeyEventType_kFlutterKeyEventTypeUp,
             };
-            log::debug!(
-                "keyboard event: physical {physical:#x} logical {logical:#x} text {:?}",
-                event.text
-            );
-            let character = event.text.map(|text| CString::new(text).unwrap());
+            log::debug!("keyboard event: physical {physical:#x} logical {logical:#x}");
+            // let character = event.text.map(|text| CString::new(text).unwrap());
             let flutter_event = FlutterKeyEvent {
                 struct_size: size_of::<FlutterKeyEvent>() as _,
                 timestamp: FlutterApplication::current_time() as f64,
                 type_,
                 physical,
                 logical,
-                character: if event.state == ElementState::Released {
-                    null()
-                } else if let Some(character) = &character {
-                    character.as_ptr()
-                } else {
-                    null()
-                },
+                character: null(),
+                // character: if event.state == ElementState::Released {
+                //     null()
+                // } else if let Some(character) = &character {
+                //     character.as_ptr()
+                // } else {
+                //     null()
+                // },
                 synthesized,
             };
             FlutterApplication::unwrap_result(unsafe {
                 FlutterEngineSendKeyEvent(engine, &flutter_event, None, null_mut())
             });
-            drop(character);
+            // drop(character);
 
             log::debug!(
                 "Updating editing state for keyboard client {:?}",
@@ -208,25 +206,27 @@ impl Keyboard {
                         selection_base.min(selection_extent)..selection_base.max(selection_extent);
                     match event.logical_key {
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::ArrowLeft if self.keyboard_modifiers.meta_key() => {
+                        Key::ArrowLeft if self.modifiers.state().meta_key() => {
                             self.move_home();
                         }
                         #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::ArrowRight if self.keyboard_modifiers.meta_key() => {
+                        Key::ArrowRight if self.modifiers.state().meta_key() => {
                             self.move_end();
                         }
                         Key::ArrowLeft => {
                             if selection.start > 0 {
-                                if !self.modifiers.shift_key() && selection.start != selection.end {
+                                if !self.modifiers.state().shift_key()
+                                    && selection.start != selection.end
+                                {
                                     editing_state.selection_extent = editing_state.selection_base;
                                 } else {
                                     editing_state.selection_base = Some((selection.start - 1) as _);
-                                    if !self.modifiers.shift_key() {
+                                    if !self.modifiers.state().shift_key() {
                                         editing_state.selection_extent =
                                             editing_state.selection_base;
                                     }
                                 }
-                            } else if !self.modifiers.shift_key()
+                            } else if !self.modifiers.state().shift_key()
                                 && selection.start != selection.end
                             {
                                 editing_state.selection_extent = editing_state.selection_base;
@@ -234,16 +234,18 @@ impl Keyboard {
                         }
                         Key::ArrowRight => {
                             if selection.end < len {
-                                if !self.modifiers.shift_key() && selection.start != selection.end {
+                                if !self.modifiers.state().shift_key()
+                                    && selection.start != selection.end
+                                {
                                     editing_state.selection_base = editing_state.selection_extent;
                                 } else {
                                     editing_state.selection_extent = Some((selection.end + 1) as _);
-                                    if !self.modifiers.shift_key() {
+                                    if !self.modifiers.state().shift_key() {
                                         editing_state.selection_base =
                                             editing_state.selection_extent;
                                     }
                                 }
-                            } else if !self.modifiers.shift_key()
+                            } else if !self.modifiers.state().shift_key()
                                 && selection.start != selection.end
                             {
                                 editing_state.selection_base = editing_state.selection_extent;
@@ -277,68 +279,68 @@ impl Keyboard {
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
-                        Key::Character("a") if self.modifiers.action_key() => {
-                            editing_state.selection_base = Some(0);
-                            editing_state.selection_extent = Some(len as _);
-                        }
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::Character("a") if self.keyboard_modifiers.control_key() => {
-                            self.move_home();
-                        }
-                        #[cfg(any(target_os = "macos", target_os = "ios"))]
-                        Key::Character("e") if self.modifiers.control_key() => {
-                            self.move_end();
-                        }
-                        Key::Character("x") if self.modifiers.action_key() => {
-                            if selection.start != selection.end {
-                                let text: String = editing_state
-                                    .text
-                                    .chars()
-                                    .skip(selection.start)
-                                    .take(selection.end - selection.start)
-                                    .collect();
-                                editing_state.text.replace_range(selection.clone(), "");
-                                editing_state.selection_extent = editing_state.selection_base;
-                                self.clipboard.lock().unwrap().set_text(text).unwrap();
-                            }
-                        }
-                        Key::Character("c") if self.modifiers.action_key() => {
-                            if selection.start != selection.end {
-                                let text: String = editing_state
-                                    .text
-                                    .chars()
-                                    .skip(selection.start)
-                                    .take(selection.end - selection.start)
-                                    .collect();
-                                self.clipboard.lock().unwrap().set_text(text).unwrap();
-                            }
-                        }
-                        Key::Character("v") if self.modifiers.action_key() => {
-                            let text = {
-                                let mut clipboard = self.clipboard.lock().unwrap();
-                                clipboard.get_text()
-                            };
-                            if let Ok(text) = text {
-                                self.insert_text(&text);
-                            }
-                        }
                         Key::Enter => {
                             self.send_action(engine, self.input_action);
                         }
                         Key::Tab => {
-                            if self.modifiers.shift_key() {
+                            if self.modifiers.state().shift_key() {
                                 self.send_action(engine, TextInputAction::Previous);
                             } else {
                                 self.send_action(engine, TextInputAction::Next);
                             }
                         }
-                        _ if self.modifiers.control_key() || self.modifiers.super_key() => {
-                            // ignore
-                        }
-                        _ => {
-                            if let Some(text) = event.text {
-                                self.insert_text(text);
+                        Key::Character(c) => match c.as_str() {
+                            "a" if self.modifiers.action_key() => {
+                                editing_state.selection_base = Some(0);
+                                editing_state.selection_extent = Some(len as _);
                             }
+                            #[cfg(any(target_os = "macos", target_os = "ios"))]
+                            "a" if self.modifiers.state().control_key() => {
+                                self.move_home();
+                            }
+                            #[cfg(any(target_os = "macos", target_os = "ios"))]
+                            "e" if self.modifers.state().control_key() => {
+                                self.move_end();
+                            }
+                            "x" if self.modifiers.action_key() => {
+                                if selection.start != selection.end {
+                                    let text: String = editing_state
+                                        .text
+                                        .chars()
+                                        .skip(selection.start)
+                                        .take(selection.end - selection.start)
+                                        .collect();
+                                    editing_state.text.replace_range(selection.clone(), "");
+                                    editing_state.selection_extent = editing_state.selection_base;
+                                    self.clipboard.lock().unwrap().set_text(text).unwrap();
+                                }
+                            }
+                            "c" if self.modifiers.action_key() => {
+                                if selection.start != selection.end {
+                                    let text: String = editing_state
+                                        .text
+                                        .chars()
+                                        .skip(selection.start)
+                                        .take(selection.end - selection.start)
+                                        .collect();
+                                    self.clipboard.lock().unwrap().set_text(text).unwrap();
+                                }
+                            }
+                            "v" if self.modifiers.action_key() => {
+                                let text = {
+                                    let mut clipboard = self.clipboard.lock().unwrap();
+                                    clipboard.get_text()
+                                };
+                                if let Ok(text) = text {
+                                    self.insert_text(&text);
+                                }
+                            }
+                            _ => {
+                                // ignore
+                            }
+                        },
+                        _ => {
+                            // ignore
                         }
                     }
                 }

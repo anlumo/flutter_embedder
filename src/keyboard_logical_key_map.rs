@@ -1,14 +1,7 @@
-use std::io::Read;
-
 use winit::keyboard::Key;
 
-pub fn translate_logical_key(key: Key<'static>) -> Option<u64> {
+pub fn translate_logical_key(key: &Key) -> Option<u64> {
     Some(match key {
-        Key::Character(c) => {
-            let mut buffer = [0u8; 8];
-            c.as_bytes().read_exact(&mut buffer).ok()?;
-            u64::from_le_bytes(buffer)
-        }
         Key::Space => 0x00000000020,
         Key::Backspace => 0x00100000008,
         Key::Tab => 0x00100000009,
@@ -384,7 +377,6 @@ pub fn translate_logical_key(key: Key<'static>) -> Option<u64> {
         // Key::F34 => return None,
         // Key::F35 => return None,
         // Key::Dead(_) => return None,
-        Key::Unidentified(_) => 0x00100000001,
         _ => return None,
     })
 }

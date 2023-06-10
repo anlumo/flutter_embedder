@@ -22,9 +22,10 @@ use wgpu::{Device, Instance, Queue, Surface};
 use wgpu_hal::api::Vulkan;
 use winit::{
     dpi::PhysicalPosition,
-    event::{DeviceId, ElementState, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase},
+    event::{
+        DeviceId, ElementState, KeyEvent, Modifiers, MouseButton, MouseScrollDelta, TouchPhase,
+    },
     event_loop::EventLoopProxy,
-    keyboard::ModifiersState,
     window::{CursorIcon, Window},
 };
 
@@ -522,7 +523,7 @@ impl FlutterApplication {
         }
     }
 
-    pub fn modifiers_changed(&mut self, state: ModifiersState) {
+    pub fn modifiers_changed(&mut self, state: Modifiers) {
         self.keyboard.modifiers_changed(state);
     }
 

@@ -9,10 +9,9 @@ log = { version = "0.4.17", features = ["std"] }
 env_logger = "0.10"
 # wgpu = "0.13.1"
 # wgpu-hal = { version = "0.13.1", features = ["vulkan"] }
-wgpu = { version = "0.15.0" }
-wgpu-hal = { version = "0.15.0", features = ["vulkan"] }
-# winit = "0.27.1"
-winit = { git = "https://github.com/anlumo/winit-new-keyboard.git", branch = "new-keyboard-linux", default-features = false, features = ["x11"] }
+wgpu = { version = "0.16.1" }
+wgpu-hal = { version = "0.16.1", features = ["vulkan"] }
+winit = { git = "https://github.com/rust-windowing/winit.git" }
 tokio = { version = "1.19.2", features = ["full"] }
 ash = "0.37.0"
 serde = { version = "1.0.144", features = ["derive"] }
@@ -24,4 +23,4 @@ serde_variant = "0.1.1"
 bytemuck = { version = "1.12.1", features = ["derive"] }
 
 [build-dependencies]
-bindgen = "0.63.0"
+bindgen = "0.65.1"
