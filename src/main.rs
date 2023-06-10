@@ -1,5 +1,4 @@
-#![allow(dead_code)]
-#![feature(result_option_inspect)]
+#![allow(dead_code, clippy::type_complexity)]
 use std::{path::PathBuf, sync::Arc};
 
 use clap::Parser;

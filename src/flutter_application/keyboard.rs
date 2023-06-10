@@ -265,7 +265,7 @@ impl Keyboard {
                                 }
                                 editing_state.selection_extent = editing_state.selection_base;
                             } else {
-                                editing_state.text.replace_range(selection.clone(), "");
+                                editing_state.text.replace_range(selection, "");
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
@@ -275,7 +275,7 @@ impl Keyboard {
                                     editing_state.text.remove(selection.start);
                                 }
                             } else {
-                                editing_state.text.replace_range(selection.clone(), "");
+                                editing_state.text.replace_range(selection, "");
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
@@ -310,7 +310,7 @@ impl Keyboard {
                                         .skip(selection.start)
                                         .take(selection.end - selection.start)
                                         .collect();
-                                    editing_state.text.replace_range(selection.clone(), "");
+                                    editing_state.text.replace_range(selection, "");
                                     editing_state.selection_extent = editing_state.selection_base;
                                     self.clipboard.lock().unwrap().set_text(text).unwrap();
                                 }

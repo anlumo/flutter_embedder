@@ -10,7 +10,7 @@ pub fn translate_physical_key(scancode: KeyCode) -> Option<u64> {
         KeyCode::Resume => 0x00000015,
         KeyCode::Turbo => 0x00000016,
         // KeyCode::Lock => 0x00000017,
-        KeyCode::AudioVolumeMute => 0x00000018,
+        // KeyCode::MicrophoneVolumeMute => 0x00000018,
         KeyCode::Sleep => 0x00010082,
         KeyCode::WakeUp => 0x00010083,
         // KeyCode::DisplayToggleIntExt => 0x000100b5,

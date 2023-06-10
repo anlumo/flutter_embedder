@@ -14,7 +14,7 @@ use serde::{
 pub enum Error {
     TupleLength,
     ExpectedNil,
-    Utf8Error(Utf8Error),
+    Utf8(Utf8Error),
     ValueOutOfRange(TryFromIntError),
     InvalidFieldType,
     TrailingCharacters,
@@ -36,7 +36,7 @@ impl From<TryFromIntError> for Error {
 
 impl From<Utf8Error> for Error {
     fn from(err: Utf8Error) -> Self {
-        Self::Utf8Error(err)
+        Self::Utf8(err)
     }
 }
 
@@ -45,7 +45,7 @@ impl std::fmt::Display for Error {
         match self {
             Error::TupleLength => formatter.write_str("Tuple length doesn't match list length"),
             Error::ExpectedNil => formatter.write_str("Expected nil"),
-            Error::Utf8Error(err) => err.fmt(formatter),
+            Error::Utf8(err) => err.fmt(formatter),
             Error::ValueOutOfRange(err) => err.fmt(formatter),
             Error::InvalidFieldType => formatter.write_str("Invalid field type"),
             Error::Message(msg) => formatter.write_str(msg),
@@ -634,7 +634,7 @@ impl<'de, 'a, N: EndianRead + IntoDeserializer<'de>> SeqAccess<'de>
         } else {
             self.len -= 1;
             let bytes = self.de.read_data(size_of::<N>())?;
-            let number = N::try_from_le_bytes(&bytes).unwrap();
+            let number = N::try_from_le_bytes(bytes).unwrap();
             seed.deserialize(number.into_deserializer())
                 .map(Some)
                 .map_err(|_| Error::InvalidFieldType)

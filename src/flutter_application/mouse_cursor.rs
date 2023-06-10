@@ -514,9 +514,9 @@ pub enum MouseCursorKind {
     ZoomOut,
 }
 
-impl Into<Option<CursorIcon>> for MouseCursorKind {
-    fn into(self) -> Option<CursorIcon> {
-        Some(match self {
+impl From<MouseCursorKind> for Option<CursorIcon> {
+    fn from(value: MouseCursorKind) -> Self {
+        Some(match value {
             MouseCursorKind::None => return None,
             MouseCursorKind::Basic => CursorIcon::Default,
             MouseCursorKind::Click => CursorIcon::Pointer,

@@ -13,5 +13,5 @@ pub fn flutter_asset_bundle_is_valid(bundle_path: &Path) -> bool {
         log::error!("Kernel blob {} does not exist.", kernel_path.display());
         return false;
     }
-    return true;
+    true
 }

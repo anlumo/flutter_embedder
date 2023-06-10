@@ -248,7 +248,7 @@ impl Compositor {
             image,
             uniform_buffer,
         });
-        let mut backing_store = unsafe { &mut *backing_store_out as &mut FlutterBackingStore };
+        let backing_store = unsafe { &mut *backing_store_out as &mut FlutterBackingStore };
         backing_store.user_data = null_mut();
         backing_store.type_ = FlutterBackingStoreType_kFlutterBackingStoreTypeVulkan;
         backing_store.did_update = true;
