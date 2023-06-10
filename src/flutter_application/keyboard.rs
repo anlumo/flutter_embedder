@@ -1,5 +1,5 @@
 use std::{
-    ffi::CString,
+    ffi::{CStr, CString},
     mem::size_of,
     ptr::{null, null_mut},
     sync::{Arc, Mutex},
@@ -13,7 +13,11 @@ use winit::{
 
 use crate::{
     action_key::ActionKey,
-    flutter_application::{text_input::TextInputClient, FlutterApplication},
+    flutter_application::{
+        keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit},
+        text_input::TextInputClient,
+        FlutterApplication,
+    },
     flutter_bindings::{
         FlutterEngine, FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessage,
         FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
@@ -97,54 +101,60 @@ impl Keyboard {
             translate_logical_key(&event.logical_key),
             translate_physical_key(event.physical_key),
         ) {
-            // let flutter_event = FlutterKeyboardEvent::Linux {
-            //     r#type: match event.state {
-            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
-            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
-            //     },
-            //     toolkit: LinuxToolkit::Gtk,
-            //     unicode_scalar_values: if let Some(character) = event.text {
-            //         let mut buffer = [0u8; 8];
-            //         if character.as_bytes().read(&mut buffer).is_ok() {
-            //             u64::from_le_bytes(buffer)
-            //         } else {
-            //             0
-            //         }
-            //     } else {
-            //         0
-            //     },
-            //     key_code: physical,
-            //     scan_code: logical,
-            //     modifiers: 0,
-            //     specified_logical_key: 0,
-            // };
-            // let flutter_event = FlutterKeyboardEvent::Web {
-            //     r#type: match event.state {
-            //         ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
-            //         ElementState::Released => FlutterKeyboardEventType::KeyUp,
-            //     },
-            //     code: event.text.unwrap_or_default().to_owned(),
-            //     key: event.text.unwrap_or_default().to_owned(),
-            //     location: 0,
-            //     meta_state: 0,
-            //     key_code: 0,
-            // };
+            use super::keyboard_event::Modifiers;
+            // gtk also handles the caps lock key here, but winit is not providing that as a modifier
+            let modifiers = if self.modifiers.state().shift_key() {
+                Modifiers::Shift as u64
+            } else {
+                0
+            } | if self.modifiers.state().control_key() {
+                Modifiers::Control as u64
+            } else {
+                0
+            } | if self.modifiers.state().alt_key() {
+                Modifiers::Mod1 as u64
+            } else {
+                0
+            } | if self.modifiers.state().super_key() {
+                Modifiers::Meta as u64
+            } else {
+                0
+            };
+            let flutter_event = FlutterKeyboardEvent::Linux {
+                r#type: match event.state {
+                    ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
+                    ElementState::Released => FlutterKeyboardEventType::KeyUp,
+                },
+                toolkit: LinuxToolkit::Gtk,
+                unicode_scalar_values: if let Some(character) = &event.text {
+                    if let Ok(buffer) = character.as_bytes().try_into() {
+                        u64::from_le_bytes(buffer)
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                },
+                key_code: physical,
+                scan_code: logical,
+                modifiers,
+                specified_logical_key: 0,
+            };
 
-            // let json = serde_json::to_vec(&flutter_event).unwrap();
-            // log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
-            // let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
-            // let message = FlutterPlatformMessage {
-            //     struct_size: size_of::<FlutterPlatformMessage>() as _,
-            //     channel: channel.as_ptr(),
-            //     message: json.as_ptr(),
-            //     message_size: json.len() as _,
-            //     response_handle: null(),
-            // };
+            let json = serde_json::to_vec(&flutter_event).unwrap();
+            log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
+            let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
+            let message = FlutterPlatformMessage {
+                struct_size: size_of::<FlutterPlatformMessage>() as _,
+                channel: channel.as_ptr(),
+                message: json.as_ptr(),
+                message_size: json.len() as _,
+                response_handle: null(),
+            };
 
-            // Self::unwrap_result(unsafe { FlutterEngineSendPlatformMessage(self.engine, &message) });
-
-            // drop(message);
-            // drop(channel);
+            FlutterApplication::unwrap_result(unsafe {
+                FlutterEngineSendPlatformMessage(engine, &message)
+            });
 
             let type_ = match event.state {
                 ElementState::Pressed => {
@@ -157,27 +167,29 @@ impl Keyboard {
                 ElementState::Released => FlutterKeyEventType_kFlutterKeyEventTypeUp,
             };
             log::debug!("keyboard event: physical {physical:#x} logical {logical:#x}");
-            // let character = event.text.map(|text| CString::new(text).unwrap());
+            let character = event
+                .text
+                .as_deref()
+                .map(|text| CString::new(text).unwrap());
             let flutter_event = FlutterKeyEvent {
                 struct_size: size_of::<FlutterKeyEvent>() as _,
                 timestamp: FlutterApplication::current_time() as f64,
                 type_,
                 physical,
                 logical,
-                character: null(),
-                // character: if event.state == ElementState::Released {
-                //     null()
-                // } else if let Some(character) = &character {
-                //     character.as_ptr()
-                // } else {
-                //     null()
-                // },
+                character: if event.state == ElementState::Released {
+                    null()
+                } else if let Some(character) = &character {
+                    character.as_ptr()
+                } else {
+                    null()
+                },
                 synthesized,
             };
             FlutterApplication::unwrap_result(unsafe {
                 FlutterEngineSendKeyEvent(engine, &flutter_event, None, null_mut())
             });
-            // drop(character);
+            drop(character);
 
             log::debug!(
                 "Updating editing state for keyboard client {:?}",

@@ -256,3 +256,15 @@ pub(super) enum FlutterKeyboardEvent {
         key_code: u64,
     },
 }
+
+// https://github.com/flutter/flutter/blob/682aa387cfe4fbd71ccd5418b2c2a075729a1c66/packages/flutter/lib/src/services/raw_keyboard_linux.dart
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[repr(u64)]
+pub enum Modifiers {
+    Shift = 1 << 0,
+    CapsLock = 1 << 1,
+    Control = 1 << 2,
+    Mod1 = 1 << 3,
+    Mod2 = 1 << 4,
+    Meta = 1 << 26,
+}

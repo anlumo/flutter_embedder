@@ -67,10 +67,9 @@ use self::{
     task_runner::TaskRunner,
 };
 
-// mod keyboard_event;
-// use keyboard_event::{FlutterKeyboardEvent, FlutterKeyboardEventType, LinuxToolkit};
 mod compositor;
 mod keyboard;
+mod keyboard_event;
 mod lifecycle;
 mod message_codec;
 mod mouse_cursor;
