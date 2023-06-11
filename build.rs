@@ -2,13 +2,22 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
+    let target = std::env::var("TARGET").unwrap();
+
     // Tell cargo to tell rustc to link the flutter_engine
     // shared library.
     println!("cargo:rustc-link-lib=flutter_engine");
-    println!(
-        "cargo:rustc-link-search=native={}/linux",
-        env::var("CARGO_MANIFEST_DIR").unwrap()
-    );
+    if target.ends_with("pc-windows-msvc") {
+        println!(
+            "cargo:rustc-link-search=native={}/windows",
+            env::var("CARGO_MANIFEST_DIR").unwrap()
+        );
+    } else {
+        println!(
+            "cargo:rustc-link-search=native={}/linux",
+            env::var("CARGO_MANIFEST_DIR").unwrap()
+        );
+    }
 
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=flutter_embedder.h");

@@ -3,16 +3,16 @@ use std::{
     collections::HashMap,
     ffi::{CStr, CString},
     mem::{size_of, MaybeUninit},
-    os::{
-        raw::{c_char, c_void},
-        unix::prelude::OsStrExt,
-    },
+    os::raw::{c_char, c_void},
     path::{Path, PathBuf},
     ptr::{null, null_mut},
     sync::{Arc, Mutex},
     thread::ThreadId,
     time::Duration,
 };
+
+#[cfg(target_os = "linux")]
+use std::os::unix::prelude::OsStrExt;
 
 use arboard::Clipboard;
 use ash::vk::Handle;
@@ -311,11 +311,29 @@ impl FlutterApplication {
             thread_priority_setter: None,
         };
 
-        let icu_data_path = CString::new(icudtl_dat.as_os_str().as_bytes()).unwrap();
         let mut args = unsafe { MaybeUninit::<FlutterProjectArgs>::zeroed().assume_init() };
         args.struct_size = size_of::<FlutterProjectArgs>() as _;
-        args.assets_path = asset_bundle_path.as_os_str().as_bytes().as_ptr() as _;
+
+        #[cfg(target_os = "linux")]
+        {
+            args.assets_path = asset_bundle_path.as_os_str().as_bytes().as_ptr() as _;
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            args.assets_path = asset_bundle_path.as_os_str().to_str().unwrap().as_ptr() as _;
+        }
+
+        let icu_data_path;
+        #[cfg(target_os = "linux")]
+        {
+            icu_data_path = CString::new(icudtl_dat.as_os_str().as_bytes()).unwrap();
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            icu_data_path = CString::new(icudtl_dat.as_os_str().to_str().unwrap()).unwrap();
+        }
         args.icu_data_path = icu_data_path.as_ptr() as _;
+
         args.command_line_argc = flutter_flags.len() as _;
         args.command_line_argv = argv_ptr.as_ptr();
         args.platform_message_callback = Some(Self::platform_message_callback);
@@ -350,6 +368,7 @@ impl FlutterApplication {
         drop(instance_extensions);
         drop(device_extensions);
         drop(argv);
+        drop(icu_data_path);
 
         instance
     }
