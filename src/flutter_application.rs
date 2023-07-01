@@ -389,7 +389,6 @@ impl FlutterApplication {
             physical_view_inset_right: 0.0,
             physical_view_inset_bottom: 0.0,
             physical_view_inset_left: 0.0,
-            display_id: 0,
         };
         log::debug!("setting metrics to {metrics:?}");
         Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
@@ -417,6 +416,8 @@ impl FlutterApplication {
             MouseButton::Left => 1,
             MouseButton::Right => 2,
             MouseButton::Middle => 4,
+            MouseButton::Back => 8,
+            MouseButton::Forward => 16,
             MouseButton::Other(x) => 1 << x,
         };
         match state {
