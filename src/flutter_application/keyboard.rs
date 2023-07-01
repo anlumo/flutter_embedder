@@ -120,41 +120,6 @@ impl Keyboard {
             } else {
                 0
             };
-            let flutter_event = FlutterKeyboardEvent::Linux {
-                r#type: match event.state {
-                    ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
-                    ElementState::Released => FlutterKeyboardEventType::KeyUp,
-                },
-                toolkit: LinuxToolkit::Gtk,
-                unicode_scalar_values: if let Some(character) = &event.text {
-                    if let Ok(buffer) = character.as_bytes().try_into() {
-                        u64::from_le_bytes(buffer)
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                },
-                key_code: physical,
-                scan_code: logical,
-                modifiers,
-                specified_logical_key: 0,
-            };
-
-            let json = serde_json::to_vec(&flutter_event).unwrap();
-            log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
-            let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
-            let message = FlutterPlatformMessage {
-                struct_size: size_of::<FlutterPlatformMessage>() as _,
-                channel: channel.as_ptr(),
-                message: json.as_ptr(),
-                message_size: json.len() as _,
-                response_handle: null(),
-            };
-
-            FlutterApplication::unwrap_result(unsafe {
-                FlutterEngineSendPlatformMessage(engine, &message)
-            });
 
             let type_ = match event.state {
                 ElementState::Pressed => {
@@ -190,6 +155,42 @@ impl Keyboard {
                 FlutterEngineSendKeyEvent(engine, &flutter_event, None, null_mut())
             });
             drop(character);
+
+            let flutter_event = FlutterKeyboardEvent::Linux {
+                r#type: match event.state {
+                    ElementState::Pressed => FlutterKeyboardEventType::KeyDown,
+                    ElementState::Released => FlutterKeyboardEventType::KeyUp,
+                },
+                toolkit: LinuxToolkit::Gtk,
+                unicode_scalar_values: if let Some(character) = &event.text {
+                    if let Ok(buffer) = character.as_bytes().try_into() {
+                        u64::from_le_bytes(buffer)
+                    } else {
+                        0
+                    }
+                } else {
+                    0
+                },
+                key_code: physical,
+                scan_code: logical,
+                modifiers,
+                specified_logical_key: 0,
+            };
+
+            let json = serde_json::to_vec(&flutter_event).unwrap();
+            log::debug!("keyevent: {:?}", String::from_utf8(json.clone()));
+            let channel = CStr::from_bytes_with_nul(b"flutter/keyevent\0").unwrap();
+            let message = FlutterPlatformMessage {
+                struct_size: size_of::<FlutterPlatformMessage>() as _,
+                channel: channel.as_ptr(),
+                message: json.as_ptr(),
+                message_size: json.len() as _,
+                response_handle: null(),
+            };
+
+            FlutterApplication::unwrap_result(unsafe {
+                FlutterEngineSendPlatformMessage(engine, &message)
+            });
 
             log::debug!(
                 "Updating editing state for keyboard client {:?}",
@@ -301,6 +302,7 @@ impl Keyboard {
                                 self.send_action(engine, TextInputAction::Next);
                             }
                         }
+                        Key::Space => self.insert_text(" "),
                         Key::Character(c) => match c.as_str() {
                             "a" if self.modifiers.action_key() => {
                                 editing_state.selection_base = Some(0);
@@ -347,8 +349,8 @@ impl Keyboard {
                                     self.insert_text(&text);
                                 }
                             }
-                            _ => {
-                                // ignore
+                            ch => {
+                                self.insert_text(ch);
                             }
                         },
                         _ => {

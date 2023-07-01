@@ -2,6 +2,26 @@ use winit::keyboard::Key;
 
 pub fn translate_logical_key(key: &Key) -> Option<u64> {
     Some(match key {
+        Key::Character(ch) => {
+            let mut iter = ch.chars();
+            match ch.len() {
+                0 => return None,
+                1 => iter.next().unwrap() as u64,
+                2 => (iter.next().unwrap() as u64) | (iter.next().unwrap() as u64) << 8,
+                3 => {
+                    (iter.next().unwrap() as u64)
+                        | (iter.next().unwrap() as u64) << 8
+                        | (iter.next().unwrap() as u64) << 16
+                }
+                4 => {
+                    (iter.next().unwrap() as u64)
+                        | (iter.next().unwrap() as u64) << 8
+                        | (iter.next().unwrap() as u64) << 16
+                        | (iter.next().unwrap() as u64) << 24
+                }
+                _ => return None,
+            }
+        }
         Key::Space => 0x00000000020,
         Key::Backspace => 0x00100000008,
         Key::Tab => 0x00100000009,
