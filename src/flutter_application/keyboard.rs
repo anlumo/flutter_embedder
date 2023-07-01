@@ -233,7 +233,28 @@ impl Keyboard {
                                 {
                                     editing_state.selection_extent = editing_state.selection_base;
                                 } else {
-                                    editing_state.selection_base = Some((selection.start - 1) as _);
+                                    if !self.modifiers.state().control_key() {
+                                        editing_state.selection_base =
+                                            Some((selection.start - 1) as _);
+                                    } else {
+                                        let mut idx = selection.start - 1;
+                                        editing_state.text[..selection.start - 1].chars().rfind(
+                                            |ch| {
+                                                if ch.is_whitespace() {
+                                                    editing_state.selection_base = Some(idx as _);
+                                                    true
+                                                } else {
+                                                    idx -= 1;
+                                                    if idx == 0 {
+                                                        editing_state.selection_base = Some(0);
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    }
                                     if !self.modifiers.state().shift_key() {
                                         editing_state.selection_extent =
                                             editing_state.selection_base;
@@ -252,7 +273,30 @@ impl Keyboard {
                                 {
                                     editing_state.selection_base = editing_state.selection_extent;
                                 } else {
-                                    editing_state.selection_extent = Some((selection.end + 1) as _);
+                                    if !self.modifiers.state().control_key() {
+                                        editing_state.selection_extent =
+                                            Some((selection.end + 1) as _);
+                                    } else {
+                                        let len = editing_state.text.len();
+                                        let mut idx = selection.start + 1;
+                                        editing_state.text[(selection.start + 1)..].chars().find(
+                                            |ch| {
+                                                if ch.is_whitespace() {
+                                                    editing_state.selection_extent = Some(idx as _);
+                                                    true
+                                                } else {
+                                                    idx += 1;
+                                                    if idx == len {
+                                                        editing_state.selection_extent =
+                                                            Some(len as _);
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                            },
+                                        );
+                                    }
                                     if !self.modifiers.state().shift_key() {
                                         editing_state.selection_base =
                                             editing_state.selection_extent;
