@@ -8,7 +8,7 @@ use std::{
 use arboard::Clipboard;
 use winit::{
     event::{ElementState, KeyEvent, Modifiers},
-    keyboard::Key,
+    keyboard::{Key, NamedKey},
 };
 
 use crate::{
@@ -20,7 +20,8 @@ use crate::{
     },
     flutter_bindings::{
         FlutterEngine, FlutterEngineSendKeyEvent, FlutterEngineSendPlatformMessage,
-        FlutterKeyEvent, FlutterKeyEventType_kFlutterKeyEventTypeDown,
+        FlutterKeyEvent, FlutterKeyEventDeviceType_kFlutterKeyEventDeviceTypeKeyboard,
+        FlutterKeyEventType_kFlutterKeyEventTypeDown,
         FlutterKeyEventType_kFlutterKeyEventTypeRepeat, FlutterKeyEventType_kFlutterKeyEventTypeUp,
         FlutterPlatformMessage,
     },
@@ -90,16 +91,19 @@ impl Keyboard {
     }
 
     pub(super) fn key_event(&mut self, engine: FlutterEngine, event: KeyEvent, synthesized: bool) {
+        let winit::keyboard::PhysicalKey::Code(physical_key) = event.physical_key else {
+            return;
+        };
         log::debug!(
             "keyboard input: virtual {:?} scancode {:?} (Translated {:?}, {:?})",
             event.logical_key,
             event.physical_key,
             translate_logical_key(&event.logical_key),
-            translate_physical_key(event.physical_key),
+            translate_physical_key(physical_key),
         );
         if let (Some(logical), Some(physical)) = (
             translate_logical_key(&event.logical_key),
-            translate_physical_key(event.physical_key),
+            translate_physical_key(physical_key),
         ) {
             use super::keyboard_event::Modifiers;
             // gtk also handles the caps lock key here, but winit is not providing that as a modifier
@@ -150,6 +154,7 @@ impl Keyboard {
                     null()
                 },
                 synthesized,
+                device_type: FlutterKeyEventDeviceType_kFlutterKeyEventDeviceTypeKeyboard,
             };
             FlutterApplication::unwrap_result(unsafe {
                 FlutterEngineSendKeyEvent(engine, &flutter_event, None, null_mut())
@@ -226,7 +231,7 @@ impl Keyboard {
                         Key::ArrowRight if self.modifiers.state().meta_key() => {
                             self.move_end();
                         }
-                        Key::ArrowLeft => {
+                        Key::Named(NamedKey::ArrowLeft) => {
                             if selection.start > 0 {
                                 if !self.modifiers.state().shift_key()
                                     && selection.start != selection.end
@@ -266,7 +271,7 @@ impl Keyboard {
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
-                        Key::ArrowRight => {
+                        Key::Named(NamedKey::ArrowRight) => {
                             if selection.end < len {
                                 if !self.modifiers.state().shift_key()
                                     && selection.start != selection.end
@@ -308,13 +313,13 @@ impl Keyboard {
                                 editing_state.selection_base = editing_state.selection_extent;
                             }
                         }
-                        Key::ArrowUp | Key::Home => {
+                        Key::Named(NamedKey::ArrowUp) | Key::Named(NamedKey::Home) => {
                             self.move_home();
                         }
-                        Key::ArrowDown | Key::End => {
+                        Key::Named(NamedKey::ArrowDown) | Key::Named(NamedKey::End) => {
                             self.move_end();
                         }
-                        Key::Backspace => {
+                        Key::Named(NamedKey::Backspace) => {
                             if selection.start == selection.end {
                                 if selection.start > 0 {
                                     editing_state.text.remove(selection.start - 1);
@@ -326,7 +331,7 @@ impl Keyboard {
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
-                        Key::Delete => {
+                        Key::Named(NamedKey::Delete) => {
                             if selection.start == selection.end {
                                 if selection.start < len {
                                     editing_state.text.remove(selection.start);
@@ -336,17 +341,17 @@ impl Keyboard {
                                 editing_state.selection_extent = editing_state.selection_base;
                             }
                         }
-                        Key::Enter => {
+                        Key::Named(NamedKey::Enter) => {
                             self.send_action(engine, self.input_action);
                         }
-                        Key::Tab => {
+                        Key::Named(NamedKey::Tab) => {
                             if self.modifiers.state().shift_key() {
                                 self.send_action(engine, TextInputAction::Previous);
                             } else {
                                 self.send_action(engine, TextInputAction::Next);
                             }
                         }
-                        Key::Space => self.insert_text(" "),
+                        Key::Named(NamedKey::Space) => self.insert_text(" "),
                         Key::Character(c) => match c.as_str() {
                             "a" if self.modifiers.action_key() => {
                                 editing_state.selection_base = Some(0);

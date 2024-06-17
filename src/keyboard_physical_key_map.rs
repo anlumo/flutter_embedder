@@ -285,7 +285,6 @@ pub fn translate_physical_key(scancode: KeyCode) -> Option<u64> {
         // KeyCode::F33 => return None,
         // KeyCode::F34 => return None,
         // KeyCode::F35 => return None,
-        KeyCode::Unidentified(_) => return None,
         _ => return None,
     })
 }

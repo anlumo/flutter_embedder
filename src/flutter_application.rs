@@ -134,7 +134,7 @@ pub struct FlutterApplicationUserData {
     pub instance: Arc<Instance>,
     pub runtime: Arc<Runtime>,
     pub device: Device,
-    pub surface: Surface,
+    pub surface: Surface<'static>,
     pub queue: Queue,
     compositor: Compositor,
     main_thread: ThreadId,
@@ -163,7 +163,7 @@ impl FlutterApplication {
         runtime: Arc<Runtime>,
         asset_bundle_path: &Path,
         flutter_flags: Vec<String>,
-        surface: Surface,
+        surface: Surface<'static>,
         instance: Arc<Instance>,
         device: Device,
         queue: Queue,
@@ -216,6 +216,7 @@ impl FlutterApplication {
                     })
                 })
             }
+            .flatten()
             .unwrap();
 
         let mut enabled_device_extensions: Vec<*const c_char> =
@@ -389,6 +390,8 @@ impl FlutterApplication {
             physical_view_inset_right: 0.0,
             physical_view_inset_bottom: 0.0,
             physical_view_inset_left: 0.0,
+            display_id: 0,
+            view_id: 0,
         };
         log::debug!("setting metrics to {metrics:?}");
         Self::unwrap_result(unsafe { FlutterEngineSendWindowMetricsEvent(self.engine, &metrics) });
@@ -526,6 +529,7 @@ impl FlutterApplication {
                 pan_y: 0.0,
                 scale: 1.0,
                 rotation: 0.0,
+                view_id: 0,
             };
             self.user_data
                 .event_loop_proxy

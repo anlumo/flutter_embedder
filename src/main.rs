@@ -10,8 +10,9 @@ use wgpu::{
 use winit::{
     dpi::PhysicalPosition,
     event::{Event, WindowEvent},
-    event_loop::{ControlFlow, EventLoop, EventLoopBuilder},
-    window::{Window, WindowBuilder},
+    event_loop::{ControlFlow, EventLoop},
+    platform::wayland::WindowAttributesExtWayland,
+    window::{Window, WindowAttributes},
 };
 
 mod flutter_application;
@@ -50,11 +51,9 @@ fn main() -> Result<(), std::io::Error> {
     let args = Args::parse();
 
     let event_loop: EventLoop<FlutterApplicationCallback> =
-        EventLoopBuilder::with_user_event().build();
-    let window = WindowBuilder::new()
-        .with_title("Flutter Embedder")
-        // .with_inner_size(PhysicalSize::new(1024, 768))
-        .build(&event_loop)
+        EventLoop::with_user_event().build().unwrap();
+    let window = event_loop
+        .create_window(WindowAttributes::default().with_title("Flutter Embedder"))
         .unwrap();
     // window.set_outer_position(PhysicalPosition::new(100, 100));
 
@@ -65,9 +64,11 @@ fn main() -> Result<(), std::io::Error> {
         let instance = Instance::new(InstanceDescriptor {
             backends: Backends::VULKAN,
             dx12_shader_compiler: wgpu::Dx12Compiler::Fxc, // we don't use DX12 anyways
+            flags: wgpu::InstanceFlags::empty(),
+            gles_minor_version: wgpu::Gles3MinorVersion::Automatic,
         });
         let window = Arc::new(window);
-        let surface = unsafe { instance.create_surface(window.as_ref()) }.unwrap();
+        let surface = instance.create_surface(window.clone()).unwrap();
         let adapter = instance
             .request_adapter(&RequestAdapterOptions {
                 power_preference: PowerPreference::default(),
@@ -81,8 +82,8 @@ fn main() -> Result<(), std::io::Error> {
             .request_device(
                 &DeviceDescriptor {
                     label: None,
-                    features: Features::CLEAR_TEXTURE,
-                    limits: Limits::downlevel_defaults(),
+                    required_features: Features::CLEAR_TEXTURE,
+                    required_limits: Limits::downlevel_defaults(),
                 },
                 None,
             )
@@ -101,6 +102,7 @@ fn main() -> Result<(), std::io::Error> {
                 present_mode: PresentMode::Fifo,
                 alpha_mode: wgpu::CompositeAlphaMode::Opaque,
                 view_formats: vec![TextureFormat::Bgra8Unorm],
+                desired_maximum_frame_latency: 0,
             },
         );
 
@@ -134,22 +136,23 @@ fn main() -> Result<(), std::io::Error> {
         // size of the window.
         metrics_changed(&app, &window);
 
-        event_loop.run(move |event, _, control_flow| {
+        event_loop.set_control_flow(ControlFlow::Wait);
+
+        event_loop.run(move |event, active_event_loop| {
             let _ = &adapter;
 
-            *control_flow = ControlFlow::Wait;
             match event {
                 Event::UserEvent(handler) => {
                     if handler(&mut app) {
-                        *control_flow = ControlFlow::Exit;
+                        active_event_loop.exit();
                     }
                 }
-                Event::RedrawRequested(_window_id) => {
-                    app.schedule_frame();
-                }
                 Event::WindowEvent { event, .. } => match event {
+                    WindowEvent::RedrawRequested => {
+                        app.schedule_frame();
+                    }
                     WindowEvent::CloseRequested => {
-                        *control_flow = ControlFlow::Exit;
+                        active_event_loop.exit();
                     }
                     WindowEvent::Moved(_)
                     | WindowEvent::Resized(_)

@@ -2,9 +2,9 @@ use std::{cell::Cell, ffi::c_void, mem::size_of, ptr::null_mut};
 
 use ash::vk::Handle;
 use wgpu::{
-    include_wgsl, Color, CommandEncoderDescriptor, LoadOp, Operations, PresentMode,
-    RenderPassColorAttachment, RenderPassDescriptor, SurfaceConfiguration, TextureDescriptor,
-    TextureDimension, TextureFormat, TextureUsages,
+    include_wgsl, Color, CommandEncoderDescriptor, LoadOp, Operations, PipelineCompilationOptions,
+    PresentMode, RenderPassColorAttachment, RenderPassDescriptor, SurfaceConfiguration,
+    TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
 };
 use wgpu_hal::api::Vulkan;
 
@@ -115,6 +115,7 @@ impl Compositor {
                     module: &shader,
                     entry_point: "vs_main",
                     buffers: &[],
+                    compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
@@ -124,6 +125,7 @@ impl Compositor {
                         blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
+                    compilation_options: PipelineCompilationOptions::default(),
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleStrip,
@@ -156,6 +158,7 @@ impl Compositor {
             collect_backing_store_callback: Some(Self::backing_store_collect_callback),
             present_layers_callback: Some(Self::present_layers_callback),
             avoid_backing_store_cache: false,
+            present_view_callback: None,
         }
     }
 
@@ -231,7 +234,7 @@ impl Compositor {
 
         let mut image = None;
         unsafe {
-            texture.as_hal::<Vulkan, _>(|texture| {
+            texture.as_hal::<Vulkan, _, _>(|texture| {
                 let texture = texture.unwrap();
                 image = Some(FlutterVulkanImage {
                     struct_size: size_of::<FlutterVulkanImage>() as _,
@@ -289,6 +292,7 @@ impl Compositor {
                     present_mode: PresentMode::Fifo,
                     alpha_mode: wgpu::CompositeAlphaMode::Auto,
                     view_formats: vec![TextureFormat::Bgra8Unorm],
+                    desired_maximum_frame_latency: 0,
                 },
             );
             application_user_data
@@ -301,16 +305,19 @@ impl Compositor {
             .surface
             .get_current_texture()
             .expect("Failed to acquire next swap chain texture");
-        let mut encoder = application_user_data
-            .device
-            .create_command_encoder(&CommandEncoderDescriptor { label: None });
+        let mut encoder =
+            application_user_data
+                .device
+                .create_command_encoder(&CommandEncoderDescriptor {
+                    label: Some("Present Layers Encoder"),
+                });
         {
             let view = frame
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
             let mut render_pass = encoder.begin_render_pass(&RenderPassDescriptor {
-                label: None,
+                label: Some("Present Layers Render Pass"),
                 color_attachments: &[Some(RenderPassColorAttachment {
                     view: &view,
                     resolve_target: None,
@@ -321,10 +328,12 @@ impl Compositor {
                             b: 1.0,
                             a: 1.0,
                         }),
-                        store: true,
+                        store: wgpu::StoreOp::Store,
                     },
                 })],
                 depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
             });
             render_pass.set_pipeline(&application_user_data.compositor.render_pipeline);
 
@@ -358,10 +367,10 @@ impl Compositor {
             {
                 let offset = layer.offset;
                 let size = layer.size;
-                log::debug!(
-                    "Layer {idx} type {} offset {offset:?} size {size:?}",
-                    layer.type_
-                );
+                // log::debug!(
+                //     "Layer {idx} type {} offset {offset:?} size {size:?}",
+                //     layer.type_
+                // );
                 match layer.type_ {
                     x if x == FlutterLayerContentType_kFlutterLayerContentTypeBackingStore => {
                         let backing_store = unsafe { &*layer.__bindgen_anon_1.backing_store };
